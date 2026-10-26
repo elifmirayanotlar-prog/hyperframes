@@ -18,8 +18,6 @@ const DOWNLOADS: Partial<Record<NodeJS.Platform, string>> = {
   win32: `${STUDIO_PAGE}/download?os=windows`,
 };
 
-/** Where a download link was shown, as `src`: the download route records it (hyperframes-internal
-    downloadAttribution.ts), so downloads from the terminal and the browser editor are counted apart. */
 export type DownloadSource = "cli" | "browser-editor";
 
 const tagged = (url: string, src: DownloadSource) =>
