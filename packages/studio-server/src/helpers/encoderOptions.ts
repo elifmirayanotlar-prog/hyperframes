@@ -132,7 +132,6 @@ export function parseEncoderOptions(body: EncoderOptionsBody, format: string): P
   return { ok: true, options };
 }
 
-/** The encoder fields of a parsed request that a render job takes, set ones only. */
 export function encoderJobOptions(opts: EncoderOptions): Omit<EncoderOptions, "gifLoop"> {
   const { crf, videoBitrate, keyframeIntervalSeconds, maxBitrate, bufferSize } = opts;
   return {
