@@ -64,7 +64,11 @@ describe("renameWithRetry", () => {
       throw new Error("copy denied");
     };
     expect(() =>
-      renameWithRetry("a", "b", { platform: "win32", rename: failing("EPERM", 99).fn, copy: broken }),
+      renameWithRetry("a", "b", {
+        platform: "win32",
+        rename: failing("EPERM", 99).fn,
+        copy: broken,
+      }),
     ).toThrow(/EPERM/);
   });
 });
