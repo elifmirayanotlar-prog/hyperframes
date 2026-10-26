@@ -434,7 +434,7 @@ async function enforceAacTruePeak(input: EnforceAacTruePeakInput): Promise<{
       }
       if (truePeakDbfs <= AAC_DELIVERY_TRUE_PEAK_DBFS) {
         if (measuredPath !== correctedPath) return { success: true };
-        renameWithRetry(correctedPath, input.audioPath);
+        renameWithRetry(correctedPath, input.audioPath, { copyFallback: true });
         return { success: true, loweredDb: Number((-attenuationDb).toFixed(2)) };
       }
       if (pass === MAX_TRUE_PEAK_CORRECTION_PASSES) break;

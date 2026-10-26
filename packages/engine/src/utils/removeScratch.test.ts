@@ -9,7 +9,7 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 import * as fs from "node:fs";
-import { removeScratch, takeScratchLeftovers } from "./removeScratch.js";
+import { collectScratchLeftovers, removeScratch } from "./removeScratch.js";
 import { renameWithRetry } from "./renameWithRetry.js";
 
 describe("removeScratch", () => {
@@ -27,7 +27,7 @@ describe("removeScratch", () => {
     expect(() => removeScratch(join(tmpdir(), "hf-scratch-missing"))).not.toThrow();
   });
 
-  it("reports what it could not remove once, and a copy that cannot clear its source leaves it", () => {
+  it("hands one run's leftovers to that run only, and a copy that cannot clear its source leaves it", async () => {
     const refuse = () => {
       throw Object.assign(new Error("EPERM: operation not permitted, unlink"), { code: "EPERM" });
     };
@@ -35,12 +35,23 @@ describe("removeScratch", () => {
     const from = join(dir, "from.wav");
     const to = join(dir, "to.wav");
     writeFileSync(from, "audio");
-    takeScratchLeftovers();
-    vi.mocked(fs.rmSync).mockImplementationOnce(refuse);
-    renameWithRetry(from, to, { platform: "win32", rename: refuse });
+    const reports: string[][] = [];
+    await Promise.all([
+      collectScratchLeftovers(
+        async () => {
+          vi.mocked(fs.rmSync).mockImplementationOnce(refuse);
+          renameWithRetry(from, to, { platform: "win32", copyFallback: true, rename: refuse });
+        },
+        (left) => reports.push(left),
+      ),
+      collectScratchLeftovers(
+        async () => {},
+        (left) => reports.push(left),
+      ),
+    ]);
+    removeScratch(join(dir, "outside-a-run"));
     expect(readFileSync(to, "utf-8")).toBe("audio");
     expect(existsSync(from)).toBe(true);
-    expect(takeScratchLeftovers()).toEqual([from]);
-    expect(takeScratchLeftovers()).toEqual([]);
+    expect(reports.sort()).toEqual([[], [from]]);
   });
 });

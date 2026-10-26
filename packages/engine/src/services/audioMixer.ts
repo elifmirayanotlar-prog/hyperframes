@@ -1274,7 +1274,7 @@ async function mixGroupMembers(
   try {
     const summed = await sumInSlices(memberTracks, scratchDir, totalDuration, signal, config);
     if (!summed.success) return summed;
-    renameWithRetry(summed.track.srcPath, outputPath);
+    renameWithRetry(summed.track.srcPath, outputPath, { copyFallback: true });
     return { success: true, degradedAutomation: summed.degradedAutomation };
   } finally {
     removeScratch(scratchDir);
@@ -1375,7 +1375,8 @@ async function mixThroughFloatSum(
       failures: [failure],
     };
   }
-  if (config?.keepEncoderInputAt) renameWithRetry(encoderInput, config.keepEncoderInputAt);
+  if (config?.keepEncoderInputAt)
+    renameWithRetry(encoderInput, config.keepEncoderInputAt, { copyFallback: true });
   return {
     ...sum,
     outputPath,

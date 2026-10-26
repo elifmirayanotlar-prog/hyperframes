@@ -50,12 +50,14 @@ describe("renameWithRetry", () => {
     const copied: string[] = [];
     renameWithRetry("a", "b", {
       platform: "win32",
+      copyFallback: true,
       rename: failing("EPERM", 99).fn,
       copy: (from, to) => void copied.push(`${from}>${to}`),
     });
     expect(copied).toEqual(["a>b"]);
     await renameWithRetryAsync("a", "c", {
       platform: "win32",
+      copyFallback: true,
       rename: async () => failing("EPERM", 99).fn(),
       copy: async (from, to) => void copied.push(`${from}>${to}`),
     });
@@ -66,9 +68,22 @@ describe("renameWithRetry", () => {
     expect(() =>
       renameWithRetry("a", "b", {
         platform: "win32",
+        copyFallback: true,
         rename: failing("EPERM", 99).fn,
         copy: broken,
       }),
     ).toThrow(/EPERM/);
+  });
+
+  it("never copies unless asked: an atomic publish keeps rename-or-throw", () => {
+    const copied: string[] = [];
+    expect(() =>
+      renameWithRetry("a", "b", {
+        platform: "win32",
+        rename: failing("EPERM", 99).fn,
+        copy: (from, to) => void copied.push(`${from}>${to}`),
+      }),
+    ).toThrow(/EPERM/);
+    expect(copied).toEqual([]);
   });
 });

@@ -9,6 +9,8 @@ const BACKOFF_MS = [10, 20, 40, 80, 160, 320, 640];
 
 interface Options {
   platform?: NodeJS.Platform;
+  /** Copy the bytes when Windows keeps refusing. Not atomic: only for scratch files, never a publish step. */
+  copyFallback?: boolean;
 }
 
 // A folder that denies delete (locked-down TEMP) refuses every rename; copying the bytes still works.
@@ -20,9 +22,10 @@ function isRetryable(error: unknown, platform: NodeJS.Platform): boolean {
 }
 
 /** What a refused rename does next: wait and try again, fall back to a copy, or give up with the error. */
-function nextStep(error: unknown, attempt: number, platform: NodeJS.Platform) {
+function nextStep(error: unknown, attempt: number, options: Options, platform: NodeJS.Platform) {
   if (!isRetryable(error, platform)) return "throw";
-  return attempt >= BACKOFF_MS.length ? "copy" : "wait";
+  if (attempt < BACKOFF_MS.length) return "wait";
+  return options.copyFallback ? "copy" : "throw";
 }
 
 function sleepSync(ms: number): void {
@@ -46,7 +49,7 @@ export function renameWithRetry(
       doRename(from, to);
       return;
     } catch (error) {
-      const step = nextStep(error, attempt, platform);
+      const step = nextStep(error, attempt, options, platform);
       if (step === "throw") throw error;
       if (step === "wait") {
         sleepSync(BACKOFF_MS[attempt]!);
@@ -80,7 +83,7 @@ export async function renameWithRetryAsync(
       await doRename(from, to);
       return;
     } catch (error) {
-      const step = nextStep(error, attempt, platform);
+      const step = nextStep(error, attempt, options, platform);
       if (step === "throw") throw error;
       if (step === "wait") {
         await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS[attempt]));
