@@ -1205,17 +1205,12 @@ async function extractVideoFramesRangeUnredacted(
           signal,
         );
   let processResult = await extract(decodeWithVideoToolbox ? ["-hwaccel", "videotoolbox"] : []);
-  // VideoToolbox refuses some pictures the software decoder reads (exit 69, "hardware
-  // accelerator failed to decode picture"). HDR kept for Chrome needs it, so only that stays failed.
-  if (
-    decodeWithVideoToolbox &&
-    !keepsHdrForChrome &&
+  const ffmpegExitedFailing =
     processResult.terminationReason === "exit" &&
     !processResult.success &&
-    !processResult.failureReason
-  ) {
-    processResult = await extract([]);
-  }
+    !processResult.failureReason;
+  const videoToolboxWasOptional = decodeWithVideoToolbox && !keepsHdrForChrome;
+  if (ffmpegExitedFailing && videoToolboxWasOptional) processResult = await extract([]);
   if (processResult.failureReason === "external_interruption") {
     throw new VideoSourceExtractionError(
       "external_interruption",
