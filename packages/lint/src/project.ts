@@ -33,6 +33,7 @@ import {
   resolveLocalAssetCandidates,
   resolveProjectRelativeSrc,
 } from "@hyperframes/parsers/asset-resolution";
+import { encodeUrlPath } from "@hyperframes/parsers";
 import {
   collectLocalVideoCandidates,
   lintHevcPreviewCodec,
@@ -391,7 +392,7 @@ function urlSafeSrcOf(projectDir: string, rootRelative: string): string | null {
   if (!/[?#]/.test(rootRelative)) return null;
   const literal = resolve(projectDir, rootRelative.replace(/^\//, ""));
   if (!existsSync(literal)) return null;
-  return rootRelative.split("/").map(encodeURIComponent).join("/");
+  return encodeUrlPath(rootRelative);
 }
 
 const urlSafeHint = (safe: string) =>
