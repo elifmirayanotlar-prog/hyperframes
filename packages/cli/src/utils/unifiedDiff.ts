@@ -33,31 +33,35 @@ function editScript(a: string[], b: string[]): Op[] {
   return [...same(a.slice(0, head)), ...middle(x, y), ...same(a.slice(a.length - tail))];
 }
 
+const replaceAll = (a: string[], b: string[]): Op[] => [
+  ...a.map((text): Op => ({ kind: "-", text })),
+  ...b.map((text): Op => ({ kind: "+", text })),
+];
+
+/** Whether diagonal `k` of round `d` is reached by moving down (an insert) from the one before it. */
+const movesDown = (v: Int32Array, offset: number, k: number, d: number) =>
+  k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!);
+
 function middle(a: string[], b: string[]): Op[] {
-  const replace = (): Op[] => [
-    ...a.map((text): Op => ({ kind: "-", text })),
-    ...b.map((text): Op => ({ kind: "+", text })),
-  ];
   const n = a.length;
   const m = b.length;
-  if (n + m === 0) return [];
-  if (n + m > MAX_EDIT_LINES) return replace();
+  if (n + m > MAX_EDIT_LINES) return replaceAll(a, b);
   const offset = n + m;
   const v = new Int32Array(2 * offset + 2);
   const trace: Int32Array[] = [];
-  for (let d = 0; d <= offset; d++) {
+  for (let d = 0; ; d++) {
     trace.push(v.slice());
     for (let k = -d; k <= d; k += 2) {
-      let px = k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!)
-        ? v[offset + k + 1]!
-        : v[offset + k - 1]! + 1;
+      let px = movesDown(v, offset, k, d) ? v[offset + k + 1]! : v[offset + k - 1]! + 1;
       let py = px - k;
-      while (px < n && py < m && a[px] === b[py]) (px++, py++);
+      while (px < n && py < m && a[px] === b[py]) {
+        px++;
+        py++;
+      }
       v[offset + k] = px;
       if (px >= n && py >= m) return backtrack(trace, a, b, offset, d);
     }
   }
-  return replace();
 }
 
 function backtrack(trace: Int32Array[], a: string[], b: string[], offset: number, last: number) {
@@ -65,18 +69,15 @@ function backtrack(trace: Int32Array[], a: string[], b: string[], offset: number
   let x = a.length;
   let y = b.length;
   for (let d = last; d > 0; d--) {
-    const v = trace[d]!;
     const k = x - y;
-    const down = k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!);
-    const prevK = down ? k + 1 : k - 1;
-    const prevX = v[offset + prevK]!;
-    const prevY = prevX - prevK;
+    const down = movesDown(trace[d]!, offset, k, d);
+    const prevX = trace[d]![offset + (down ? k + 1 : k - 1)]!;
+    const prevY = prevX - (down ? k + 1 : k - 1);
     while (x > (down ? prevX : prevX + 1) && y > (down ? prevY + 1 : prevY)) {
       ops.push({ kind: " ", text: a[--x]! });
       y--;
     }
-    if (down) ops.push({ kind: "+", text: b[--y]! });
-    else ops.push({ kind: "-", text: a[--x]! });
+    ops.push(down ? { kind: "+", text: b[--y]! } : { kind: "-", text: a[--x]! });
   }
   while (x > 0) {
     ops.push({ kind: " ", text: a[--x]! });

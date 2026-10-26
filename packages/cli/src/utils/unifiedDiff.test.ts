@@ -19,10 +19,40 @@ function apply(before: string, diff: string): string {
     } else if (row.startsWith("\\")) continue;
     else if (row.startsWith("+")) out.push(row.slice(1));
     else if (row.startsWith("-")) at++;
-    else (out.push(row.slice(1)), at++);
+    else {
+      out.push(row.slice(1));
+      at++;
+    }
   }
   out.push(...lines.slice(at));
   return out.join("\n");
+}
+
+function randomizer(seed: number) {
+  return (n: number) => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) % n;
+}
+
+/** Two texts, the second the first with lines dropped and inserted, either with or without a final newline. */
+function randomPair(rand: (n: number) => number): [string, string] {
+  const before = Array.from({ length: rand(25) }, () => `w${rand(6)}`);
+  const after = before.filter(() => rand(4) > 0);
+  for (let i = rand(5); i > 0; i--) after.splice(rand(after.length + 1), 0, `n${rand(9)}`);
+  const text = (lines: string[], bare: boolean) =>
+    lines.length ? lines.join("\n") + (bare ? "" : "\n") : "";
+  return [text(before, rand(3) === 0), text(after, rand(3) === 0)];
+}
+
+const bodyOf = (text: string) => text.slice(text.indexOf("@@")).trimEnd();
+
+/** What git prints for the two texts, or undefined where git is not installed. */
+function gitDiffBody(dir: string, a: string, b: string): string | undefined {
+  writeFileSync(join(dir, "a"), a);
+  writeFileSync(join(dir, "b"), b);
+  const git = spawnSync("git", ["diff", "--no-index", "--no-color", "--no-prefix", "a", "b"], {
+    cwd: dir,
+    encoding: "utf-8",
+  });
+  return git.error ? undefined : bodyOf(git.stdout);
 }
 
 describe("unifiedDiff", () => {
@@ -50,30 +80,24 @@ describe("unifiedDiff", () => {
   it("matches git's own diff and reproduces the new text on random edits", () => {
     const dir = mkdtempSync(join(tmpdir(), "hf-udiff-"));
     try {
-      let seed = 7;
-      const rand = (n: number) => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) % n);
+      const rand = randomizer(7);
       for (let round = 0; round < 40; round++) {
-        const before = Array.from({ length: rand(25) }, () => `w${rand(6)}`);
-        const after = before.filter(() => rand(4) > 0);
-        for (let i = rand(5); i > 0; i--) after.splice(rand(after.length + 1), 0, `n${rand(9)}`);
-        const eol = rand(3) === 0 ? "" : "\n";
-        const a = before.length ? before.join("\n") + eol : "";
-        const b = after.length ? after.join("\n") + (rand(3) === 0 ? "" : "\n") : "";
+        const [a, b] = randomPair(rand);
         const mine = unifiedDiff("f", a, b);
         expect(apply(a, mine).replace(/\n?$/, "")).toBe(b.replace(/\n$/, ""));
-        writeFileSync(join(dir, "a"), a);
-        writeFileSync(join(dir, "b"), b);
-        const git = spawnSync(
-          "git",
-          ["diff", "--no-index", "--no-color", "--no-prefix", "a", "b"],
-          { cwd: dir, encoding: "utf-8" },
-        );
-        if (git.error) continue;
-        const body = (text: string) => text.slice(text.indexOf("@@")).trimEnd();
-        expect(body(mine)).toBe(a === b ? "" : body(git.stdout));
+        const git = gitDiffBody(dir, a, b);
+        if (git !== undefined) expect(bodyOf(mine)).toBe(a === b ? "" : git);
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("shows a change past the edit cap as one replace of the changed middle", () => {
+    const lines = (prefix: string) => Array.from({ length: 2500 }, (_, i) => `${prefix}${i}`);
+    const text = (prefix: string) => `keep\n${lines(prefix).join("\n")}\n`;
+    const diff = unifiedDiff("a", text("x"), text("y"));
+    expect(apply(text("x"), diff)).toBe(text("y").trimEnd());
+    expect(diff).toContain("-x0\n-x1");
   });
 });
