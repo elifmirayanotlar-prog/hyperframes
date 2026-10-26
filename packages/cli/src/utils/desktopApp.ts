@@ -185,7 +185,7 @@ export function openInDesktop(
   ): DesktopOpenResult => ({
     opened: false,
     reason,
-    downloadUrl: desktopDownloadUrl(platform, src) ?? tagged(STUDIO_PAGE, src),
+    downloadUrl: desktopDownloadUrl(platform, src) ?? STUDIO_PAGE,
   });
   const opened = (canary: boolean): DesktopOpenResult => {
     if (cta) writeRecord(dir, DESKTOP_CTA_RECORD, JSON.stringify({ cta, at: Date.now() }));

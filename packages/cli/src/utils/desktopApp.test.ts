@@ -112,7 +112,7 @@ describe("openInDesktop", () => {
     ).toEqual({
       opened: false,
       reason: "unsupported-platform",
-      downloadUrl: "https://hyperframes.dev/studio?src=cli",
+      downloadUrl: "https://hyperframes.dev/studio",
     });
   });
 });
