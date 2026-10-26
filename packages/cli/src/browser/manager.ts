@@ -542,15 +542,47 @@ async function ensureLinuxArmBrowser(options?: EnsureBrowserOptions): Promise<Br
  * With `preferManagedChrome`: env var -> OUR pinned cache -> auto-download
  * (puppeteer-cache preference and system Chrome are both skipped).
  */
+const BROWSER_WAIT_NOTICE_MS = 15_000;
+
+/** Runs `task`, saying so every 15 s while it is still going, so a first-use download is never silent. */
+export async function withBrowserWaitNotice<T>(
+  task: Promise<T>,
+  notify: (message: string) => void = console.warn,
+  everyMs = BROWSER_WAIT_NOTICE_MS,
+): Promise<T> {
+  const timer = setInterval(
+    () =>
+      notify(
+        "[hyperframes] Still getting Chrome ready; the first use downloads it. " +
+          "Set HYPERFRAMES_BROWSER_PATH to use an installed Chrome instead.",
+      ),
+    everyMs,
+  );
+  timer.unref();
+  try {
+    return await task;
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 export async function ensureBrowser(options?: EnsureBrowserOptions): Promise<BrowserResult> {
-  if (options?.signal) return ensureBrowserInOwnedProcess(options);
-  return ensureBrowserInCurrentProcess(options);
+  const task = options?.signal
+    ? ensureBrowserInOwnedProcess(options)
+    : ensureBrowserInCurrentProcess(options);
+  return options?.onProgress ? task : withBrowserWaitNotice(task);
 }
 
 // fallow-ignore-next-line complexity
 async function ensureBrowserInCurrentProcess(
   options?: EnsureBrowserOptions,
 ): Promise<BrowserResult> {
+  const configured = browserPathFromEnv();
+  if (configured && !existsSync(configured.path)) {
+    throw new Error(
+      `${configured.name} is set to ${configured.path}, which does not exist. Fix the path or unset it.`,
+    );
+  }
   const fromEnv = findFromEnv();
   if (fromEnv) return fromEnv;
 

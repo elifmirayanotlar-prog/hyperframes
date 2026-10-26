@@ -1216,6 +1216,40 @@ describe("findBrowser — cache resolution", () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
+  it("ensureBrowser fails fast naming a configured browser path that does not exist", async () => {
+    installFsMocks({ existing: new Set(["/usr/bin/chromium"]) });
+    installPuppeteerBrowsersMock();
+    process.env["HYPERFRAMES_BROWSER_PATH"] = "/opt/typo/chrome";
+
+    const { ensureBrowser } = await import("./manager.js");
+
+    await expect(ensureBrowser()).rejects.toThrow(
+      "HYPERFRAMES_BROWSER_PATH is set to /opt/typo/chrome, which does not exist",
+    );
+  });
+
+  it("withBrowserWaitNotice speaks every 15 s while the task runs and stops when it ends", async () => {
+    vi.useFakeTimers();
+    try {
+      const notify = vi.fn();
+      let finish = () => {};
+      const task = new Promise<string>((resolve) => (finish = () => resolve("done")));
+      const { withBrowserWaitNotice } = await import("./manager.js");
+      const result = withBrowserWaitNotice(task, notify, 15_000);
+      await vi.advanceTimersByTimeAsync(14_000);
+      expect(notify).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(notify).toHaveBeenCalledTimes(3);
+      expect(notify.mock.calls[0]?.[0]).toContain("HYPERFRAMES_BROWSER_PATH");
+      finish();
+      await expect(result).resolves.toBe("done");
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(notify).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("prefers HYPERFRAMES_BROWSER_PATH over PRODUCER_HEADLESS_SHELL_PATH when both are set", async () => {
     // Tiebreak matches `render.ts` — the CLI-native name canonicalizes; the
     // engine name is a compatibility alias. If both are set the caller almost
