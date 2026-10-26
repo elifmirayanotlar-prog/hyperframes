@@ -19,6 +19,12 @@ function isRetryable(error: unknown, platform: NodeJS.Platform): boolean {
   return RETRYABLE.has((error as NodeJS.ErrnoException | undefined)?.code ?? "");
 }
 
+/** What a refused rename does next: wait and try again, fall back to a copy, or give up with the error. */
+function nextStep(error: unknown, attempt: number, platform: NodeJS.Platform) {
+  if (!isRetryable(error, platform)) return "throw";
+  return attempt >= BACKOFF_MS.length ? "copy" : "wait";
+}
+
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -40,17 +46,19 @@ export function renameWithRetry(
       doRename(from, to);
       return;
     } catch (error) {
-      if (!isRetryable(error, platform)) throw error;
-      if (attempt >= BACKOFF_MS.length) {
-        try {
-          doCopy(from, to);
-        } catch {
-          throw error;
-        }
-        removeScratch(from);
-        return;
+      const step = nextStep(error, attempt, platform);
+      if (step === "throw") throw error;
+      if (step === "wait") {
+        sleepSync(BACKOFF_MS[attempt]!);
+        continue;
       }
-      sleepSync(BACKOFF_MS[attempt]!);
+      try {
+        doCopy(from, to);
+      } catch {
+        throw error;
+      }
+      removeScratch(from);
+      return;
     }
   }
 }
@@ -72,17 +80,19 @@ export async function renameWithRetryAsync(
       await doRename(from, to);
       return;
     } catch (error) {
-      if (!isRetryable(error, platform)) throw error;
-      if (attempt >= BACKOFF_MS.length) {
-        try {
-          await doCopy(from, to);
-        } catch {
-          throw error;
-        }
-        removeScratch(from);
-        return;
+      const step = nextStep(error, attempt, platform);
+      if (step === "throw") throw error;
+      if (step === "wait") {
+        await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS[attempt]));
+        continue;
       }
-      await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS[attempt]));
+      try {
+        await doCopy(from, to);
+      } catch {
+        throw error;
+      }
+      removeScratch(from);
+      return;
     }
   }
 }
