@@ -1228,6 +1228,33 @@ describe("findBrowser — cache resolution", () => {
     );
   });
 
+  it("retryOnStall gives up after one 75 s stall when attempts is 1, and retries to ~195 s when 3", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { retryOnStall } = await import("./manager.js");
+      const { BrowserDownloadStalledError } = await import("./installInChild.js");
+      const stalled = () =>
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new BrowserDownloadStalledError("stalled")), 75_000),
+        );
+      const once = vi.fn(stalled);
+      const first = expect(retryOnStall(once, () => {}, 1)).rejects.toThrow("stalled");
+      await vi.advanceTimersByTimeAsync(75_000);
+      await first;
+      expect(once).toHaveBeenCalledTimes(1);
+
+      const thrice = vi.fn(stalled);
+      const all = expect(retryOnStall(thrice, () => {}, 3)).rejects.toThrow("stalled");
+      await vi.advanceTimersByTimeAsync(3 * 75_000);
+      await all;
+      expect(thrice).toHaveBeenCalledTimes(3);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("withBrowserWaitNotice speaks every 15 s while the task runs and stops when it ends", async () => {
     vi.useFakeTimers();
     try {

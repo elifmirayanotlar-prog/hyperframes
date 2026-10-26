@@ -229,6 +229,8 @@ export interface BrowserResult {
 export interface EnsureBrowserOptions {
   onProgress?: (downloadedBytes: number, totalBytes: number) => void;
   downloadStallMs?: number;
+  // Stalled-download attempts; default 3 on a terminal, 1 elsewhere (see ensureBrowser).
+  downloadAttempts?: number;
   downloadBaseUrl?: string;
   // Re-download the managed build even when cached; only its version dir is replaced.
   force?: boolean;
@@ -567,10 +569,15 @@ export async function withBrowserWaitNotice<T>(
 }
 
 export async function ensureBrowser(options?: EnsureBrowserOptions): Promise<BrowserResult> {
-  const task = options?.signal
-    ? ensureBrowserInOwnedProcess(options)
-    : ensureBrowserInCurrentProcess(options);
-  return options?.onProgress ? task : withBrowserWaitNotice(task);
+  // Tools that time out at 120 s lose to three stalled attempts (~4 min); one stall then a clear error wins.
+  const resolved = {
+    ...options,
+    downloadAttempts: options?.downloadAttempts ?? (process.stdout.isTTY ? DOWNLOAD_ATTEMPTS : 1),
+  };
+  const task = resolved.signal
+    ? ensureBrowserInOwnedProcess(resolved)
+    : ensureBrowserInCurrentProcess(resolved);
+  return resolved.onProgress ? task : withBrowserWaitNotice(task);
 }
 
 // fallow-ignore-next-line complexity
@@ -632,6 +639,7 @@ async function ensureBrowserInOwnedProcess(options: EnsureBrowserOptions): Promi
       {
         force: options.force,
         preferManagedChrome: options.preferManagedChrome,
+        downloadAttempts: options.downloadAttempts,
       },
       {
         signal,
@@ -721,7 +729,7 @@ function wrapDownloadFailureWithBrowserPathHint(
     `Failed to install chrome-headless-shell ${managedChromeVersion()}: ${original}${unzipErrors}\n\n` +
     `Point hyperframes at an already-installed Chrome/Chromium instead:\n\n` +
     `  export HYPERFRAMES_BROWSER_PATH="${example}"\n\n` +
-    `Then re-run your command. Any Chrome build works for the screenshot ` +
+    `Run \`hyperframes doctor\` to see which Chrome was found. Then re-run your command. Any Chrome build works for the screenshot ` +
     `capture path; install a real chrome-headless-shell later if you need the ` +
     `perf-optimized BeginFrame path. Alternatively, run inside the hyperframes ` +
     `Docker image which ships a compatible headless-shell.`;
@@ -731,13 +739,17 @@ function wrapDownloadFailureWithBrowserPathHint(
 const DOWNLOAD_STALL_MS = 60_000;
 const DOWNLOAD_ATTEMPTS = 3;
 
-async function retryOnStall<T>(run: () => Promise<T>, clear: () => void): Promise<T> {
+export async function retryOnStall<T>(
+  run: () => Promise<T>,
+  clear: () => void,
+  attempts = DOWNLOAD_ATTEMPTS,
+): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await run();
     } catch (err) {
-      if (!(err instanceof BrowserDownloadStalledError) || attempt >= DOWNLOAD_ATTEMPTS) throw err;
-      console.warn(`[hyperframes] ${err.message} Retrying (${attempt}/${DOWNLOAD_ATTEMPTS - 1}).`);
+      if (!(err instanceof BrowserDownloadStalledError) || attempt >= attempts) throw err;
+      console.warn(`[hyperframes] ${err.message} Retrying (${attempt}/${attempts - 1}).`);
       clear();
     }
   }
@@ -836,6 +848,7 @@ async function downloadBrowser(options?: EnsureBrowserOptions): Promise<BrowserR
           ),
         ),
       clearStaging,
+      options?.downloadAttempts,
     );
     assertExecutableUnpacked(stagingDir, staged.executablePath);
     unzipLog.lines = [];
