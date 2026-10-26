@@ -116,7 +116,6 @@ export interface ParallelWorkerPhaseDiagnostic {
   browserVersion: string;
   canvasDrawElement: boolean | "unknown";
   gpuBackend: string;
-  /** The capture step the worker's page is in right now; read when a stall is worded. */
   readStep?: () => string | undefined;
 }
 
@@ -1028,7 +1027,6 @@ export interface ParallelCaptureHooks {
    * frame (the ordered writer) with the original error, not a stall.
    */
   onWorkerFailure?: (failure: CaptureFailure) => void;
-  /** Every capture or encode call a worker starts, so a stall can name the frame and step it is stuck in. */
   onWorkerOperation?: (diagnostic: ParallelWorkerPhaseDiagnostic) => void;
 }
 

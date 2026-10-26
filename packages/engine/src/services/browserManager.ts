@@ -953,8 +953,6 @@ function forceCloseBrowserProcess(browser: Browser): void {
       } | null;
     }
   ).process?.();
-  // disconnect() drops Puppeteer's own listeners on the CDP pipes, and the killed browser's pipes
-  // then fail with ECONNRESET: unhandled, that ends the whole CLI process.
   for (const stream of proc?.stdio ?? []) stream?.on("error", () => {});
   if (proc && !proc.killed) {
     try {

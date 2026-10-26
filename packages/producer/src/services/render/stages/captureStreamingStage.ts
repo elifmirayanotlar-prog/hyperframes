@@ -763,11 +763,8 @@ export async function runCaptureStreamingStage(
         const tasks = deParallelStream
           ? distributeFramesInterleaved(totalFrames - resumeFrom, workerCount, workDir, resumeFrom)
           : distributeFrames(totalFrames - resumeFrom, workerCount, workDir, resumeFrom);
-        // First guard/write failure aborts the reorder buffer so peer workers
-        // parked in waitForFrame reject instead of deadlocking the pool (the
-        // pool awaits ALL workers before surfacing errors). The original error
-        // is rethrown below so DrawElementVerificationError keeps its type —
-        // executeParallelCapture flattens worker errors to strings.
+        // The first guard or write failure aborts the reorder buffer so parked peers reject, not
+        // deadlock.
         let parallelDrainError: Error | null = null;
         const onFrameBuffer = async (
           frameIndex: number,
@@ -793,22 +790,9 @@ export async function runCaptureStreamingStage(
           }
         };
 
-        // Progress-stall watchdog. Wired through a SEPARATE controller (linked
-        // to the parent abort) rather than the job's `abortSignal` so a
-        // watchdog trip stays distinguishable from a real cancellation: the
-        // orchestrator gates its pinned fallback on `abortSignal.aborted`, which
-        // stays false here, so a stall re-renders via screenshot instead of
-        // being swallowed as a cancel. On trip we also abort the reorder buffer
-        // so peer workers parked in `waitForFrame` reject instead of deadlocking
-        // the pool (executeParallelCapture awaits ALL workers).
-        //
-        // The clock is ARMED, not just reset, by progress: it starts counting
-        // only once some worker has reached its first capture call or written
-        // a frame. Before that the workers are launching browsers and settling
-        // sub-composition timelines and media, which on a heavy composition
-        // legitimately takes longer than the stall window — the sequential path
-        // starts its clock after initializeSession for the same reason. Init
-        // itself is bounded by the engine (browserTimeout, playerReadyTimeout).
+        // Stall watchdog on its own controller, so a trip is not read as a cancel; armed by first
+        // progress.
+        // A trip aborts the reorder buffer so peers parked in waitForFrame reject.
         const captureLabel = input.parallelCaptureLabel ?? "worker";
         let watchdogArmed = false;
         const stallController = new AbortController();
@@ -895,21 +879,12 @@ export async function runCaptureStreamingStage(
               );
             },
             onFrameBuffer,
-            // Interleaved DE workers each need their own browser PROCESS:
-            // pages co-tenant in one browser share one compositor, whose
-            // internal frame scheduling deprioritizes non-active pages — their
-            // canvas `paint` events starve and the drawElement paint-wait slows
-            // ~3x (measured: 86s vs 30s on a 3,245-frame rAF comp). This is
-            // Chromium's internal frame-production scheduling on ALL platforms,
-            // NOT the Linux-only HeadlessExperimental.beginFrame capture mode.
+            // Interleaved DE workers each get their own browser process: co-tenant pages starve
+            // each other's paint events.
             deParallelStream ? { ...captureCfg, enableBrowserPool: false } : captureCfg,
             {
-              // A worker died (Target closed, Page crashed, launch failure).
-              // Its frames are gone and peers are parked in waitForFrame on the
-              // first of them; release them with the ORIGINAL failure so the
-              // orchestrator sees a transient browser error it knows how to
-              // retry, not the stall the watchdog would have raised a minute
-              // later. First failure wins, same as the drain guard above.
+              // A worker died: release parked peers with its original failure, not the stall the
+              // watchdog raises later.
               onWorkerOperation: (phase) => workerPhases.set(phase.workerId, phaseDetail(phase)),
               onWorkerFailure: (failure) => {
                 if (parallelDrainError) return;
@@ -945,11 +920,8 @@ export async function runCaptureStreamingStage(
           // orchestrator's verify-retry handler recognizes it — the worker pool
           // flattens worker errors into a plain message string.
           if (parallelDrainError) throw poolFailure(parallelDrainError, probeSession);
-          // A watchdog trip aborts the pool via stallController, so the pool
-          // rejects with a generic "[Parallel] Capture failed" string. Replace
-          // it with a clear, non-cancellation stall error (the parent abort did
-          // NOT fire) so the orchestrator's pinned fallback re-renders via
-          // screenshot instead of masking a 5-min hang.
+          // A watchdog trip rejects the pool with a generic string; replace it with the typed stall
+          // error.
           if (stalled && abortSignal?.aborted !== true) {
             throw new ParallelCaptureStallError({
               variant: "pool",
