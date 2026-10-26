@@ -9,12 +9,10 @@ const BACKOFF_MS = [10, 20, 40, 80, 160, 320, 640];
 
 interface Options {
   platform?: NodeJS.Platform;
-  /** Copy the bytes when Windows keeps refusing. Not atomic: only for scratch files, never a publish step. */
+  /** Copy the bytes when Windows keeps refusing (a TEMP that denies delete). Not atomic: scratch files only. */
   copyFallback?: boolean;
 }
 
-// A folder that denies delete (locked-down TEMP) refuses every rename; copying the bytes still works.
-// The source is left behind when it cannot be removed.
 
 function isRetryable(error: unknown, platform: NodeJS.Platform): boolean {
   if (platform !== "win32") return false;
