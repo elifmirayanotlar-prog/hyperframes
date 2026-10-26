@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 const QUIET_MS = 60_000;
@@ -12,7 +13,8 @@ export function watchForHang(
   env = process.env,
   writeReport = (path: string) => {
     process.report.excludeEnv = true;
-    process.report.writeReport(path);
+    // writeReport announces the file on stderr; getReport keeps the file the only trace.
+    writeFileSync(path, JSON.stringify(process.report.getReport()), { mode: 0o600 });
   },
 ): void {
   const dir = env.HYPERFRAMES_HANG_REPORT;
