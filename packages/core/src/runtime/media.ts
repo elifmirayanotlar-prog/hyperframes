@@ -236,6 +236,7 @@ export function evictMediaSyncState(el: HTMLMediaElement): void {
   lastRuntimeAppliedVolume.delete(el);
   forgetSteering(el);
   heldAhead.delete(el);
+  videoStarts.delete(el);
 }
 
 /** Test-only seam: whether any per-source sync state is still tracked for `el`. */
@@ -302,6 +303,51 @@ const MIN_NATIVE_PLAYBACK_RATE = 1 / 16;
 const VIDEO_LEAD_HOLD_SECONDS = 0.1;
 const heldAhead = new WeakSet<HTMLMediaElement>();
 
+// A video's clock starts tens of ms after play() (its muted audio track is the clock), so an upcoming
+// video is started that much before its cut, hidden on its first frame. Learned from earlier starts.
+const MAX_VIDEO_START_LATENCY_SECONDS = 0.1;
+const VIDEO_START_SAMPLE_SECONDS = 0.25;
+let videoStartLatencySeconds: number | null = null;
+const videoStarts = new WeakMap<
+  HTMLMediaElement,
+  { offset: number; leadSeconds: number; sampleAt: number }
+>();
+
+/** Test-only seam: forget the learned video start latency. */
+export function resetVideoStartLatency(): void {
+  videoStartLatencySeconds = null;
+}
+
+function noteVideoStart(
+  el: HTMLMediaElement,
+  clipStart: number,
+  time: number,
+  offset: number,
+  rate: number,
+) {
+  videoStarts.set(el, {
+    offset,
+    leadSeconds: Math.max(0, clipStart - time) / rate,
+    sampleAt: Math.max(time, clipStart) + VIDEO_START_SAMPLE_SECONDS * rate,
+  });
+}
+
+/** Once a started video has run a while, its lag plus how early it started is the latency. */
+function learnVideoStartLatency(
+  el: HTMLMediaElement,
+  time: number,
+  offset: number,
+  baseRate: number,
+) {
+  const start = videoStarts.get(el);
+  if (!start || time < start.sampleAt) return;
+  videoStarts.delete(el);
+  const sample = (offset - start.offset) / baseRate + start.leadSeconds;
+  const averaged =
+    videoStartLatencySeconds === null ? sample : (videoStartLatencySeconds + sample) / 2;
+  videoStartLatencySeconds = Math.min(MAX_VIDEO_START_LATENCY_SECONDS, Math.max(0, averaged));
+}
+
 // fallow-ignore-next-line complexity
 export function syncRuntimeMedia(params: {
   clips: RuntimeMediaClip[];
@@ -364,15 +410,18 @@ export function syncRuntimeMedia(params: {
     const isNonLoopVideo = el.tagName === "VIDEO" && !clip.loop;
     const inWindow = isInClipWindow(params.timeSeconds, clip.start, clip.end);
     const dueIn = clip.start - params.timeSeconds;
+    const cueAhead =
+      el.tagName === "AUDIO"
+        ? (params.cueAheadSeconds ?? 0)
+        : params.playing && videoStartLatencySeconds !== null
+          ? // Started on the tick nearest its lead: ticks are coarser than the lead.
+            videoStartLatencySeconds * params.playbackRate + (params.cueAheadSeconds ?? 0) / 2
+          : 0;
     const startsEarly =
-      el.tagName === "AUDIO" &&
       !inWindow &&
       dueIn > 0 &&
       dueIn * Math.max(1, rateAt(clipRate, clip.start - origin)) <=
-        Math.max(
-          params.cueAheadSeconds ?? 0,
-          startedEarly.has(el) ? MEDIA_SYNC_TOLERANCE_SECONDS : 0,
-        );
+        Math.max(cueAhead, startedEarly.has(el) ? MEDIA_SYNC_TOLERANCE_SECONDS : 0);
     if (startsEarly) startedEarly.add(el);
     else startedEarly.delete(el);
     // A video that runs to the composition end stays the visible frame at and past it, so it
@@ -569,6 +618,7 @@ export function syncRuntimeMedia(params: {
       }
       const holdingAhead = heldAhead.has(el);
       const isPlayingMedia = !el.paused && playing;
+      if (isPlayingMedia) learnVideoStartLatency(el, params.timeSeconds, offset, baseRate);
       // Only apply strict sync when offset has stabilized (not growing).
       // During initial buffering, offset grows ~16ms/tick as the timeline
       // advances while media stays at 0. Accumulated drift from pause/play
@@ -641,6 +691,7 @@ export function syncRuntimeMedia(params: {
         }
         playRequested.delete(el);
         heldAhead.delete(el);
+        videoStarts.delete(el);
       } else if (!playing) {
         holdSeekBarrierUntilVideoLands(el);
       }
@@ -666,6 +717,15 @@ export function syncRuntimeMedia(params: {
         // fire between `load()` and `addEventListener` attachment, wedging
         // the element waiting for a callback that never came.
         markPlayRequested(el);
+        // Read after any seek above: the offset before it says nothing about this start.
+        if (el.tagName === "VIDEO")
+          noteVideoStart(
+            el,
+            clip.start,
+            params.timeSeconds,
+            relTime - (el.currentTime || 0),
+            params.playbackRate,
+          );
         void el.play().catch((err: unknown) => {
           // If play() rejects — e.g. autoplay blocked, element removed
           // mid-flight — drop the in-flight flag so a future sync tick can
