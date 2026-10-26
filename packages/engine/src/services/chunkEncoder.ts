@@ -230,13 +230,14 @@ export function keyframeIntervalToGopSize(fps: Fps, seconds: number): number {
   return Math.max(1, Math.round(fpsToNumber(fps) * seconds));
 }
 
-const BITRATE_PATTERN = /^(\d+(?:\.\d+)?)([kKmM]?)$/;
+const BITRATE_PATTERN = /^(\d+(?:\.\d+)?)([kKmMgG]?)$/;
 
 function bitrateToBitsPerSecond(value: string): number {
   const match = BITRATE_PATTERN.exec(value);
   if (!match) throw new Error(`[chunkEncoder] invalid bitrate ${JSON.stringify(value)}`);
   const unit = match[2]!.toLowerCase();
-  return Number(match[1]) * (unit === "m" ? 1_000_000 : unit === "k" ? 1_000 : 1);
+  const scale = { g: 1_000_000_000, m: 1_000_000, k: 1_000 }[unit] ?? 1;
+  return Number(match[1]) * scale;
 }
 
 /** `-maxrate` / `-bufsize` for the VBV cap, written once for both arg builders. Buffer defaults to 2x. */

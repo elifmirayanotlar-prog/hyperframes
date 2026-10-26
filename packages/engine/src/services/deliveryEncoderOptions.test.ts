@@ -60,6 +60,15 @@ describe("rate cap args", () => {
     expect(args[args.indexOf("-crf") + 1]).toBe("20");
   });
 
+  it("reads a gigabit cap the way the HTTP parsers accept it", () => {
+    expect(capOf(buildEncoderArgs({ ...base, maxBitrate: "1G" }, [], "/tmp/o.mp4"))).toEqual([
+      "-maxrate",
+      "1000000000",
+      "-bufsize",
+      "2000000000",
+    ]);
+  });
+
   it("refuses a buffer without a rate, a bad rate and codecs it cannot cap", () => {
     expect(() => appendRateCapArgs([], { bufferSize: "2M" })).toThrow(/requires maxBitrate/);
     expect(() => appendRateCapArgs([], { maxBitrate: "fast" })).toThrow(/invalid bitrate/);

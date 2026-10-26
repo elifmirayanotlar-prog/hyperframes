@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseEncoderOptions } from "./encoderOptions";
+import { encoderJobOptions, parseEncoderOptions } from "./encoderOptions";
 
 describe("parseEncoderOptions", () => {
   it("returns no overrides for an empty request", () => {
@@ -66,5 +66,34 @@ describe("parseEncoderOptions", () => {
       ok: false,
       error: "bufferSize requires maxBitrate",
     });
+  });
+});
+
+describe("encoderJobOptions", () => {
+  it("passes every encoder field of a parsed request on to the render job", () => {
+    const parsed = parseEncoderOptions(
+      {
+        crf: 20,
+        keyframeIntervalSeconds: 2,
+        maxBitrate: "8M",
+        bufferSize: "12M",
+        videoFrameFormat: "png",
+        hdrMode: "force-sdr",
+      },
+      "mp4",
+    );
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(encoderJobOptions(parsed.options)).toEqual({
+      crf: 20,
+      keyframeIntervalSeconds: 2,
+      maxBitrate: "8M",
+      bufferSize: "12M",
+      videoFrameFormat: "png",
+      hdrMode: "force-sdr",
+    });
+  });
+
+  it("leaves out what the request did not set", () => {
+    expect(encoderJobOptions({})).toEqual({});
   });
 });
