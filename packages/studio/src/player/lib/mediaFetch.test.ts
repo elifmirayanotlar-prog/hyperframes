@@ -62,6 +62,50 @@ describe("mediaUrlSourceOptions", () => {
     });
   });
 
+  it("gives up on a body that breaks mid-read with the typed error, through a real mediabunny read", async () => {
+    const brokenBody = () =>
+      new Response(
+        new ReadableStream({
+          pull: (controller) => controller.error(new TypeError("network error")),
+        }),
+        {
+          status: 206,
+          headers: { "Content-Range": "bytes 0-65535/1000000", "Content-Length": "65536" },
+        },
+      );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => brokenBody()),
+    );
+    vi.useFakeTimers();
+    const mb = await import("mediabunny");
+    const runnerListeners = process.listeners("unhandledRejection");
+    const unhandled: unknown[] = [];
+    process.removeAllListeners("unhandledRejection");
+    process.on("unhandledRejection", (reason) => unhandled.push(reason));
+    try {
+      const input = new mb.Input({
+        source: new mb.UrlSource(URL_WITH_PATH, mediaUrlSourceOptions("thumbnail")),
+        formats: mb.ALL_FORMATS,
+      });
+      const read = input.getDurationFromMetadata().catch((e: unknown) => e);
+      await vi.runAllTimersAsync();
+      const error = await read;
+      input.dispose();
+      await vi.runAllTimersAsync();
+
+      expect(error).toMatchObject({
+        name: "MediaFetchError",
+        message: "thumbnail range fetch failed: network TypeError after 2 retries",
+      });
+      for (const reason of unhandled) expect(reason).toBeInstanceOf(MediaFetchError);
+    } finally {
+      vi.useRealTimers();
+      process.removeAllListeners("unhandledRejection");
+      for (const listener of runnerListeners) process.on("unhandledRejection", listener);
+    }
+  });
+
   it("counts mid-stream read failures, which always arrive as attempt 1", () => {
     const { getRetryDelay } = mediaUrlSourceOptions("thumbnail");
     const readError = new TypeError("network error");

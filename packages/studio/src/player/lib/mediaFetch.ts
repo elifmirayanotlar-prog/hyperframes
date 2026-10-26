@@ -38,22 +38,47 @@ function networkCode(error: unknown): string {
   return typeof name === "string" ? name : "unknown";
 }
 
+const typedFailure = (reader: MediaReader, error: unknown) =>
+  isAbort(error) ? error : new MediaFetchError(reader, null, networkCode(error));
+
+/** The body, failing a broken read with a MediaFetchError: mediabunny rethrows a body error as-is. */
+function typedBody(
+  reader: MediaReader,
+  body: ReadableStream<Uint8Array>,
+): ReadableStream<Uint8Array> {
+  const source = body.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await source.read();
+        if (done) controller.close();
+        else controller.enqueue(value);
+      } catch (error) {
+        controller.error(typedFailure(reader, error));
+      }
+    },
+    cancel: (reason) => source.cancel(reason),
+  });
+}
+
 /**
  * Options for a mediabunny `UrlSource`. Its default retries a same-origin network failure
  * forever and logs a bare `TypeError` each time; these retry twice and fail with a MediaFetchError.
  */
 export function mediaUrlSourceOptions(reader: MediaReader) {
   let failures = 0;
-  const fetchFn: typeof fetch = async (input, init) => {
+  const fetchFn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     let response: Response;
     try {
+      // oxlint-disable-next-line no-restricted-globals -- a media read, on the media's sockets like mediabunny's own
       response = await fetch(input, init);
     } catch (error) {
-      if (isAbort(error)) throw error;
-      throw new MediaFetchError(reader, null, networkCode(error));
+      throw typedFailure(reader, error);
     }
     if (!response.ok) throw new MediaFetchError(reader, response.status, null);
-    return response;
+    if (!response.body) return response;
+    const { status, statusText, headers } = response;
+    return new Response(typedBody(reader, response.body), { status, statusText, headers });
   };
   // Counted per source: mediabunny passes 1 for every failed mid-stream read.
   const getRetryDelay = (_previousAttempts: number, error: unknown): number | null => {
