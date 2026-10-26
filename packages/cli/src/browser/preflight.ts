@@ -15,7 +15,6 @@ import {
   distroLabel,
   parseLddMissingLibs,
 } from "./linuxDeps.js";
-import { closeManagedBrowser, launchManagedBrowser } from "./launch.js";
 import { getFreeDiskMb } from "../telemetry/system.js";
 import { runCancellableProcess } from "../utils/cancellableProcess.js";
 import { normalizeErrorMessage } from "../utils/errorMessage.js";
@@ -256,27 +255,31 @@ function chromeLaunchFailureDetails(error: unknown): string {
     .join(", ");
 }
 
-// Windows chrome.exe prints nothing for --version and can exit 21 while rendering fine: launch it as capture does.
-async function chromeVersionBanner(executablePath: string, signal?: AbortSignal): Promise<string> {
-  if (process.platform !== "win32") {
-    const { stdout } = await runCancellableProcess(executablePath, ["--version"], {
-      signal,
-      timeoutMs: FIRST_LAUNCH_TIMEOUT_MS,
-      maxBufferBytes: 64 * 1024,
-    });
-    return stdout;
-  }
-  const puppeteer = await import("puppeteer-core");
-  const browser = await launchManagedBrowser(puppeteer.default, {
-    headless: true,
-    executablePath,
-    timeout: FIRST_LAUNCH_TIMEOUT_MS,
-    signal,
-  });
+// Windows chrome.exe prints nothing for --version and can exit 21 while rendering fine: read the file's version.
+async function windowsChromeVersionMajor(
+  executablePath: string,
+  signal?: AbortSignal,
+): Promise<number | undefined> {
   try {
-    return await browser.version();
-  } finally {
-    await closeManagedBrowser(browser);
+    const { stdout } = await runCancellableProcess(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(Get-Item -LiteralPath $env:HF_CHROME).VersionInfo.ProductVersion",
+      ],
+      {
+        signal,
+        timeoutMs: 10_000,
+        maxBufferBytes: 4 * 1024,
+        env: { ...process.env, HF_CHROME: executablePath },
+      },
+    );
+    return extractMajorVersion(stdout);
+  } catch {
+    if (signal?.aborted) signal.throwIfAborted();
+    return undefined;
   }
 }
 
@@ -287,11 +290,16 @@ async function chromeLaunchOutcome(
 ): Promise<EnvironmentCheckOutcome> {
   const libraries = await chromeSharedLibOutcome(executablePath, found, signal);
   if (!libraries.ok) return libraries;
+  if (process.platform === "win32") {
+    return { ...found, versionMajor: await windowsChromeVersionMajor(executablePath, signal) };
+  }
   try {
-    return {
-      ...found,
-      versionMajor: extractMajorVersion(await chromeVersionBanner(executablePath, signal)),
-    };
+    const { stdout } = await runCancellableProcess(executablePath, ["--version"], {
+      signal,
+      timeoutMs: FIRST_LAUNCH_TIMEOUT_MS,
+      maxBufferBytes: 64 * 1024,
+    });
+    return { ...found, versionMajor: extractMajorVersion(stdout) };
   } catch (error) {
     if (signal?.aborted) signal.throwIfAborted();
     const details = chromeLaunchFailureDetails(error);
@@ -300,7 +308,7 @@ async function chromeLaunchOutcome(
       ok: false,
       level: "error",
       title: "Chrome cannot start",
-      detail: `Failed to start "${executablePath}"${details ? ` (${details})` : ""}.`,
+      detail: `Failed to run "${executablePath}" --version${details ? ` (${details})` : ""}.`,
       hint:
         "Select a working Chrome/Chromium binary for this OS and architecture with " +
         "HYPERFRAMES_BROWSER_PATH, or reinstall with: npx hyperframes browser ensure --force",

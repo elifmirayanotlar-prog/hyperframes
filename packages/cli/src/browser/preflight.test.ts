@@ -14,10 +14,6 @@ import * as manager from "./manager.js";
 import * as linuxDeps from "./linuxDeps.js";
 
 const runProcess = vi.hoisted(() => vi.fn());
-const launchManagedBrowser = vi.hoisted(() => vi.fn());
-const closeManagedBrowser = vi.hoisted(() => vi.fn());
-
-vi.mock("./launch.js", () => ({ launchManagedBrowser, closeManagedBrowser }));
 
 vi.mock("../utils/cancellableProcess.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../utils/cancellableProcess.js")>();
@@ -221,24 +217,18 @@ describe("runEnvironmentChecks", () => {
   });
 
   describe("on Windows", () => {
-    const realPlatform = process.platform;
     beforeEach(() => {
       Object.defineProperty(process, "platform", { value: "win32", configurable: true });
-      launchManagedBrowser.mockReset();
-      closeManagedBrowser.mockReset();
-    });
-    afterEach(() => {
-      Object.defineProperty(process, "platform", { value: realPlatform, configurable: true });
     });
 
-    it("takes Chrome's version from a launch, not from a `--version` run that exits 21", async () => {
+    it("reads Chrome's version from the file, never from a `--version` run that exits 21", async () => {
       runProcess.mockImplementation((binaryPath: string, args: string[]) => {
-        if (args[0] === "--version" && binaryPath === process.execPath)
+        if (binaryPath === process.execPath && args[0] === "--version")
           throw Object.assign(new Error("exit 21"), { status: 21 });
+        if (binaryPath === "powershell.exe")
+          return Promise.resolve({ stdout: "131.0.6778.85\r\n", stderr: "" });
         return Promise.resolve({ stdout: "ffmpeg version 7.1.1\n", stderr: "" });
       });
-      const browser = { version: async () => "HeadlessChrome/131.0.6778.85" };
-      launchManagedBrowser.mockResolvedValue(browser);
 
       const result = await runEnvironmentChecks({
         includeBrowser: true,
@@ -249,21 +239,22 @@ describe("runEnvironmentChecks", () => {
         ok: true,
         versionMajor: 131,
       });
-      expect(closeManagedBrowser).toHaveBeenCalledWith(browser);
     });
 
-    it("reports Chrome cannot start when the launch itself fails", async () => {
-      launchManagedBrowser.mockRejectedValue(Object.assign(new Error("boom"), { code: "ENOENT" }));
+    it("still reports Chrome usable when its version cannot be read", async () => {
+      runProcess.mockImplementation((binaryPath: string) => {
+        if (binaryPath === "powershell.exe") throw new Error("powershell unavailable");
+        return Promise.resolve({ stdout: "ffmpeg version 7.1.1\n", stderr: "" });
+      });
 
       const result = await runEnvironmentChecks({
         includeBrowser: true,
         browserPath: process.execPath,
       });
 
-      expect(result.outcomes.find((outcome) => outcome.name === "Chrome")).toMatchObject({
-        ok: false,
-        title: "Chrome cannot start",
-      });
+      const chrome = result.outcomes.find((outcome) => outcome.name === "Chrome");
+      expect(chrome?.ok).toBe(true);
+      expect(chrome?.versionMajor).toBeUndefined();
     });
   });
 
