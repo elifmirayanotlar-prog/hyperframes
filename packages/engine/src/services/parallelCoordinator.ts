@@ -116,6 +116,8 @@ export interface ParallelWorkerPhaseDiagnostic {
   browserVersion: string;
   canvasDrawElement: boolean | "unknown";
   gpuBackend: string;
+  /** The capture step the worker's page is in right now; read when a stall is worded. */
+  readStep?: () => string | undefined;
 }
 
 export interface WorkerSizingConfig extends Partial<
@@ -572,6 +574,7 @@ async function captureFrameRange(
   phaseTimeoutMs: number,
   diagnosticFor: (phase: ParallelWorkerPhase, frameIndex?: number) => ParallelWorkerPhaseDiagnostic,
   onWorkerPhase: ((diagnostic: ParallelWorkerPhaseDiagnostic) => void) | undefined,
+  onWorkerOperation?: (diagnostic: ParallelWorkerPhaseDiagnostic) => void,
 ): Promise<number> {
   let framesCaptured = 0;
   const outputOffset = task.outputFrameOffset ?? 0;
@@ -581,13 +584,15 @@ async function captureFrameRange(
     frameIndex: number,
     operation: () => Promise<T>,
   ): Promise<T> => {
-    const diagnostic = diagnosticFor(phase, frameIndex);
+    const diagnostic = { ...diagnosticFor(phase, frameIndex), readStep: () => session.captureStep };
     if (framesCaptured === 0) onWorkerPhase?.(diagnostic);
+    onWorkerOperation?.(diagnostic);
     return withParallelWorkerDeadline(operation(), diagnostic, phaseTimeoutMs, signal);
   };
   const awaitEncode = (frameIndex: number, encodeResult: Promise<Buffer>): Promise<Buffer> => {
     const diagnostic = diagnosticFor("frame_encode", frameIndex);
     if (framesCaptured === 0) onWorkerPhase?.(diagnostic);
+    onWorkerOperation?.(diagnostic);
     return withParallelWorkerDeadline(encodeResult, diagnostic, phaseTimeoutMs, signal);
   };
   // Depth-2 pipelined drawElement produce (HF_DE_PARALLEL_STREAM spike): frame
@@ -847,6 +852,7 @@ async function executeWorkerTask(
   parallel?: boolean,
   onFailure?: (failure: CaptureFailure) => void,
   onWorkerPhase?: (diagnostic: ParallelWorkerPhaseDiagnostic) => void,
+  onWorkerOperation?: (diagnostic: ParallelWorkerPhaseDiagnostic) => void,
 ): Promise<WorkerResult> {
   const startTime = Date.now();
   let framesCaptured = 0;
@@ -932,6 +938,7 @@ async function executeWorkerTask(
       phaseTimeoutMs,
       diagnosticFor,
       onWorkerPhase,
+      onWorkerOperation,
     );
 
     await verifyDiskDrawElementSamples(activeSession, task, Boolean(onFrameBuffer));
@@ -1021,6 +1028,8 @@ export interface ParallelCaptureHooks {
    * frame (the ordered writer) with the original error, not a stall.
    */
   onWorkerFailure?: (failure: CaptureFailure) => void;
+  /** Every capture or encode call a worker starts, so a stall can name the frame and step it is stuck in. */
+  onWorkerOperation?: (diagnostic: ParallelWorkerPhaseDiagnostic) => void;
 }
 
 function pageErrorLinesOf(session: CaptureSession): string[] {
@@ -1152,6 +1161,7 @@ export async function executeParallelCapture(
         parallel,
         onFailure,
         onWorkerPhase,
+        hooks?.onWorkerOperation,
       ),
     ),
   );

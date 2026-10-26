@@ -946,9 +946,16 @@ async function launchBrowser(
 function forceCloseBrowserProcess(browser: Browser): void {
   const proc = (
     browser as unknown as {
-      process?: () => { kill: (signal?: NodeJS.Signals) => boolean; killed?: boolean } | null;
+      process?: () => {
+        kill: (signal?: NodeJS.Signals) => boolean;
+        killed?: boolean;
+        stdio?: ReadonlyArray<NodeJS.EventEmitter | null | undefined>;
+      } | null;
     }
   ).process?.();
+  // disconnect() drops Puppeteer's own listeners on the CDP pipes, and the killed browser's pipes
+  // then fail with ECONNRESET: unhandled, that ends the whole CLI process.
+  for (const stream of proc?.stdio ?? []) stream?.on("error", () => {});
   if (proc && !proc.killed) {
     try {
       proc.kill("SIGKILL");
