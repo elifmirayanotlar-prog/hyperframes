@@ -2039,6 +2039,19 @@ describe("syncRuntimeMedia", () => {
       tick(clip, 9.99);
       expect(el.play).not.toHaveBeenCalled();
     });
+
+    it("keeps a looping video playing when the playhead wraps a lap before it", () => {
+      const clip = videoClip({ start: 0, end: 10, mediaStart: 0, loop: true, sourceDuration: 0.4 });
+      const el = clip.el;
+      Object.defineProperty(el, "paused", { value: false, writable: true, configurable: true });
+      el.pause = vi.fn();
+      for (let tickIndex = 0; tickIndex < 100; tickIndex++) {
+        const timeSeconds = 0.3 + tickIndex * 0.004;
+        el.currentTime = Math.min(timeSeconds, 0.39); // the element lags at the end of each lap
+        tick(clip, timeSeconds);
+      }
+      expect(el.pause).not.toHaveBeenCalled();
+    });
   });
 
   describe("playing media drift", () => {

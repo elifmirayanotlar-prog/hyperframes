@@ -580,9 +580,10 @@ export function syncRuntimeMedia(params: {
       // strict and force sync and is steered by rate; hard sync (>0.5s) and audio past its steer
       // limit seek. A paused transport pauses it below, so a seek that pauses mid-playback lands it.
       if (el.tagName === "VIDEO" && !isHeldVideoTail) {
+        // A loop's playhead wraps before its element, so its offset jumps by a lap: steering owns loops.
         const ahead =
-          offset < -VIDEO_LEAD_HOLD_SECONDS ||
-          (!clip.loop &&
+          !clip.loop &&
+          (offset < -VIDEO_LEAD_HOLD_SECONDS ||
             currentElTime >= mediaSourceTimeAt(clip, clip.end) - MEDIA_SYNC_TOLERANCE_SECONDS);
         if (!playing || (!ahead && offset >= -MEDIA_SYNC_TOLERANCE_SECONDS)) heldAhead.delete(el);
         else if (ahead && !el.paused) {
