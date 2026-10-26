@@ -13,7 +13,6 @@ interface Options {
   copyFallback?: boolean;
 }
 
-
 function isRetryable(error: unknown, platform: NodeJS.Platform): boolean {
   if (platform !== "win32") return false;
   return RETRYABLE.has((error as NodeJS.ErrnoException | undefined)?.code ?? "");
