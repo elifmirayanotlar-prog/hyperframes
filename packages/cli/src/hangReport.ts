@@ -7,7 +7,7 @@ interface Output {
   write: (...args: never[]) => unknown;
 }
 
-/** Writes the report with no environment values; before Node 22.13 there is no way to leave them out, so it writes nothing. */
+/** Writes the report without environment values; before Node 22.13 that is impossible, so nothing is written. */
 export function writeReportFile(
   path: string,
   report: Pick<typeof process.report, "getReport"> = process.report,
