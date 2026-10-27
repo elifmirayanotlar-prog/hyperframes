@@ -125,7 +125,6 @@ const FFMPEG_EXTRACT_TIMEOUT_MS = 30_000;
 const FALLBACK_SEEK_LEAD_SECONDS = 5;
 const RENDER_READY_TIMEOUT_MS = DEFAULT_CONFIG.playerReadyTimeout;
 
-/** --timeout is in milliseconds: a value that reads as seconds would end the wait at once. */
 export function timeoutUnitHint(timeoutMs: number): string {
   return timeoutMs < 1_000
     ? ` --timeout is in milliseconds, so ${timeoutMs} is ${timeoutMs} ms; 45000 is 45 s.`

@@ -42,11 +42,7 @@ function tail(stderr: string): string {
     .join("\n");
 }
 
-/**
- * Starts the browser once more with the failed launch's flags and says how it ended: its exit code
- * (named on Windows) and last stderr lines, or that it kept running. A failed pipe launch only
- * reports "Target closed", and puppeteer hands the caller no child to ask.
- */
+/** Starts the browser once more with the failed launch's flags and says how it ended. */
 export async function diagnoseChromeStartup(
   executablePath: string,
   args: readonly string[],

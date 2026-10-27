@@ -114,7 +114,6 @@ export async function launchManagedBrowser(
   }
 }
 
-/** A failed launch says how Chrome itself ends when started alone: its exit code, last stderr lines, or that it stays up. */
 async function withStartupDiagnosis(error: unknown, options: LaunchOptions): Promise<unknown> {
   if (options.signal?.aborted || shutdown || error instanceof Error === false) return error;
   if (sandboxDeniedRemediation(normalizeErrorMessage(error))) return error;
