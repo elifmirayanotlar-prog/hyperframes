@@ -947,7 +947,6 @@ export function createFileServer(options: FileServerOptions): Promise<FileServer
       connections.add(socket);
       socket.on("close", () => connections.delete(socket));
     });
-    // A bind that fails (port taken, no permission) fails the render here, not as a hang.
     server.on("error", reject);
   });
 }
