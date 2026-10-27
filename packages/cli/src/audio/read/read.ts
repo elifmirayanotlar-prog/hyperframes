@@ -116,8 +116,6 @@ async function decodedStems(stemPaths: Record<string, string>) {
   return { pitched, drums };
 }
 
-const SUSTAINED_GUARD = 0.1;
-
 const present = (tracks: (Float32Array | null)[]) =>
   tracks.filter((t): t is Float32Array => t !== null);
 
@@ -146,17 +144,6 @@ function separatedStems(
 
 const recording = (path: string, separated: boolean, voiceSamples: Float32Array) =>
   separated ? decodeMono(path) : Promise.resolve(voiceSamples);
-
-function outside(samples: Float32Array, spans: readonly Span[]): Float32Array {
-  const out = Float32Array.from(samples);
-  for (const span of spans)
-    out.fill(
-      0,
-      Math.max(0, Math.round((span.start - SUSTAINED_GUARD) * READ_RATE)),
-      Math.min(out.length, Math.round((span.end + SUSTAINED_GUARD) * READ_RATE)),
-    );
-  return out;
-}
 
 function excerpt(samples: Float32Array, spans: readonly Span[]): Float32Array {
   const parts = spans.map((span) =>
@@ -194,7 +181,7 @@ function againstMusic(
   return { ...voice, sentences };
 }
 
-/** Effects from the drums and from the bed outside music and ambience, each level from the whole recording. */
+/** Effects from the drums and from the bed where it plays neither music nor ambience, each level from the whole recording. */
 async function fromStems(
   stemPaths: Record<string, string>,
   voice: Voice,
@@ -207,7 +194,10 @@ async function fromStems(
   const segments = music?.segments ?? [];
   const everythingElse = mixed(present([bed, drums]));
   const effects = findEffects({
-    sources: present([drums, bed && outside(bed, [...segments, ...(ambience ?? [])])]),
+    sources: [
+      ...(drums ? [{ samples: drums }] : []),
+      ...(bed ? [{ samples: bed, heldBy: [...segments, ...(ambience ?? [])] }] : []),
+    ],
     sampleRate: READ_RATE,
     mix,
     music: bed && everythingElse,
@@ -254,7 +244,7 @@ async function analyze(
     return { ...about, ...(await fromStems(stemPaths, voice, voiceSamples, mix)), warnings };
   warnings.push("without stems, effects under speech are not found and music is not read");
   const effects = findEffects({
-    sources: [voiceSamples],
+    sources: [{ samples: voiceSamples }],
     sampleRate: READ_RATE,
     mix,
     music: null,

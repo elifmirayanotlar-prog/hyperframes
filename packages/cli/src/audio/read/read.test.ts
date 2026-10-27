@@ -287,6 +287,42 @@ describe.skipIf(!ffmpeg)("readAudio", () => {
     expect(readFileSync(textPath, "utf8")).not.toContain("over music");
   });
 
+  const loudPad = (t: number) => 2 * C_MAJOR(t);
+  const fading = (from: number, seconds: number) => (t: number) =>
+    t < 2 || t >= from + seconds
+      ? 0
+      : loudPad(t) * 10 ** ((-60 * Math.max(0, t - from)) / seconds / 20);
+  const bridged = (t: number) =>
+    t < 1 || t >= 10 ? 0 : loudPad(t) * (t >= 5 && t < 6 ? 10 ** (-30 / 20) : 1);
+
+  it.each([
+    ["a 4 s fade", fading(6, 4)],
+    ["a 2 s fade", fading(7, 2)],
+    ["a 1 s fade", fading(7.6, 1)],
+    ["a bridge 30 dB down", bridged],
+  ])("reads no effect where music ends in %s", async (name, music) => {
+    const file = `${name.replace(/\W+/g, "-")}.wav`;
+    const path = wav(file, 14, music);
+    const cacheDir = join(dir, `cache-${file}`);
+    const sha = createHash("sha256").update(readFileSync(path)).digest("hex");
+    const stemDir = join(cacheDir, "stems", sha.slice(0, 12));
+    mkdirSync(stemDir, { recursive: true });
+    writeFileSync(join(stemDir, "other.wav"), readFileSync(path));
+    writeFileSync(join(stemDir, "silence.wav"), readFileSync(wav(`silent-${file}`, 14, () => 0)));
+    writeFileSync(
+      join(stemDir, "stems.json"),
+      JSON.stringify({
+        other: "other.wav",
+        ...Object.fromEntries(
+          ["vocals", "drums", "bass", "guitar", "piano"].map((n) => [n, "silence.wav"]),
+        ),
+      }),
+    );
+    const { analysis } = await readAudio(path, file, { cacheDir });
+    expect(analysis.music!.segments.length).toBeGreaterThan(0);
+    expect(analysis.effects!.events).toEqual([]);
+  });
+
   it("falls back on partial stems and retries instead of caching unmeasured layers as silence", async () => {
     for (const name of Object.keys(stemFiles)) delete stemFiles[name];
     stemFiles.vocals = wav("partial-vocals.wav", 2, voiced);

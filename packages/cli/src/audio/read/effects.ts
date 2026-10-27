@@ -280,9 +280,15 @@ function majority(kinds: EffectKind[]): EffectKind {
   return [...counts].sort((a, b) => b[1] - a[1])[0]![0];
 }
 
+export interface EffectSource {
+  samples: Float32Array;
+  /** Where this track plays music or ambience: a sound that starts or peaks inside one belongs to it, not an effect. */
+  heldBy?: readonly Span[];
+}
+
 export interface EffectInput {
-  /** The tracks effects are found in, each on its own: the drums and the bed outside music, or the whole mix without stems. */
-  sources: readonly Float32Array[];
+  /** The tracks effects are found in, each on its own: the drums and the bed, or the whole mix without stems. */
+  sources: readonly EffectSource[];
   sampleRate: number;
   /** The whole recording: every level an effect is given is read from it, so the stems' leakage does not count. */
   mix: Float32Array;
@@ -306,12 +312,19 @@ interface Shaped extends Found {
   print: Float64Array;
 }
 
-function foundIn(source: Float32Array, input: EffectInput, mixDb: Float32Array): Shaped[] {
+function foundIn(
+  { samples: source, heldBy = [] }: EffectSource,
+  input: EffectInput,
+  mixDb: Float32Array,
+): Shaped[] {
   const db = source === input.mix ? mixDb : levels(source, input.sampleRate, HOP);
   const inSpeech = (t: number) =>
     input.speech.some((s) => t >= s.start - SPEECH_SLACK && t < s.end);
   const masked = (f: Found) => f.peakDb < (mixDb[Math.round(f.peak / HOP)] ?? -120) - MASKED_DB;
-  const found = detect(db, source, input.sampleRate, inSpeech).filter((f) => !masked(f));
+  const held = (f: Found) => heldBy.some((span) => f.t < span.end && f.peak >= span.start);
+  const found = detect(db, source, input.sampleRate, inSpeech).filter(
+    (f) => !masked(f) && !held(f),
+  );
   const bands = found.length ? bandFramesOf(asSignal(source, input.sampleRate)).bands : [];
   return found.map((f) => {
     const power = shape(bands, f.t, Math.min(f.end, f.t + 0.4));
