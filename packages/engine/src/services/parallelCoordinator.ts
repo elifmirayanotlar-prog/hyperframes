@@ -1052,10 +1052,11 @@ function createFirstSessionGate(
   });
   settled.catch(() => {});
   return {
-    verify: (session) => verify(session).then(pass, (error: unknown) => {
-      fail(error);
-      throw error;
-    }),
+    verify: (session) =>
+      verify(session).then(pass, (error: unknown) => {
+        fail(error);
+        throw error;
+      }),
     wait: () => settled,
     fail,
   };

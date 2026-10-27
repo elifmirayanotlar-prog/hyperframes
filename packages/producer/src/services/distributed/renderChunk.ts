@@ -1054,7 +1054,8 @@ export async function renderChunk(
                 onFrameLanded: (frame) => overlap.current?.onFrameLanded(frame),
                 interleaveFrames: interleavesCapture(overlap.current !== null, options),
                 openAttempt,
-                verifyFirstSession: forceScreenshot || !verifyInWorker ? undefined : verifyFirstWorker,
+                verifyFirstSession:
+                  forceScreenshot || !verifyInWorker ? undefined : verifyFirstWorker,
               }),
             { stall: frameStallRule(job) },
           ).catch(async (captureError: unknown) => {
