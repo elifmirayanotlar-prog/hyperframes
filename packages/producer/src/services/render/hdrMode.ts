@@ -107,12 +107,10 @@ function logHdrResolution(
   );
 }
 
-/** Only mp4 can carry HDR10; alpha formats and hls are SDR-only. */
 function formatCarriesHdr(format: NonNullable<RenderConfig["format"]>): boolean {
   return format === "mp4";
 }
 
-/** True when the output can never carry HDR (forced SDR or a format that cannot): HDR sources must be tone-mapped. */
 export function rendersSdrOnly(config: Pick<RenderConfig, "hdrMode" | "format">): boolean {
   return config.hdrMode === "force-sdr" || !formatCarriesHdr(config.format ?? "mp4");
 }
