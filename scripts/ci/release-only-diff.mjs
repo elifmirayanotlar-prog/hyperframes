@@ -24,12 +24,7 @@ function withoutVersion(text) {
   }
 }
 
-/**
- * Sorts changed paths into the release's own and the rest.
- * @param {string[]} paths
- * @param {(path: string) => string | null} before @param {(path: string) => string | null} after
- * @returns {{ releaseOnly: boolean, other: string[], versions: Map<string, string> }}
- */
+/** Sorts changed paths into the release's own and the rest; before and after read a path at each end, or null. */
 export function classify(paths, before, after) {
   const other = [];
   const versions = new Map();

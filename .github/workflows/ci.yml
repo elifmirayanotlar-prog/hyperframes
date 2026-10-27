@@ -276,8 +276,8 @@ jobs:
               - "!**/{__tests__,__fixtures__}/**"
               - "!**/*.md"
 
-  # A release PR changes versions and notes only (scripts/ci/release-only-diff.mjs); the heavy suites run on main and the
-  # merge queue. Build still packs the manifests and keeps the tarballs; this job checks the release is consistent.
+  # A release PR changes versions and notes only (scripts/ci/release-only-diff.mjs), so heavy suites skip it.
+  # Build still packs the manifests and keeps the tarballs; this job checks the release is consistent.
   release-checks:
     name: Release checks
     needs: changes
