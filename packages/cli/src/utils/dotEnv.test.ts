@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDotEnv } from "./dotEnv.js";
+import { applyDotEnv, CAPTURE_ENV_KEYS } from "./dotEnv.js";
 
 describe("applyDotEnv", () => {
   it("copies a project's keys without overwriting what is already set", () => {
@@ -82,5 +82,77 @@ describe("applyDotEnv quoted multiline values", () => {
     applyDotEnv("KEY='line1\r\nline2'\r\nAFTER=2", env);
     expect(env.KEY).toBe("line1\nline2");
     expect(env.AFTER).toBe("2");
+  });
+});
+
+describe("applyDotEnv custom vision credentials", () => {
+  const vision = {
+    HYPERFRAMES_VISION_BASE_URL: "https://vision.example/v1",
+    HYPERFRAMES_VISION_API_KEY: "fixture-key",
+    HYPERFRAMES_VISION_MODEL: "fixture-model",
+  };
+  const content = Object.entries(vision)
+    .map(([key, value]) => `${key}="${value}"`)
+    .join("\n");
+
+  it("loads all three values through the capture allowlist", () => {
+    const env: NodeJS.ProcessEnv = {};
+    applyDotEnv(content, env, CAPTURE_ENV_KEYS);
+    expect(env).toEqual(vision);
+  });
+
+  it.each(Object.keys(vision))("keeps an inherited %s separate from a project endpoint", (key) => {
+    const env: NodeJS.ProcessEnv = { [key]: "inherited" };
+    applyDotEnv(`${content}\nGEMINI_API_KEY=other-provider`, env, CAPTURE_ENV_KEYS);
+    expect(env).toEqual({ [key]: "inherited", GEMINI_API_KEY: "other-provider" });
+  });
+
+  it("keeps an empty inherited value separate too", () => {
+    const env: NodeJS.ProcessEnv = { HYPERFRAMES_VISION_API_KEY: "" };
+    applyDotEnv(content, env, CAPTURE_ENV_KEYS);
+    expect(env).toEqual({ HYPERFRAMES_VISION_API_KEY: "" });
+  });
+
+  it("keeps a complete inherited endpoint unchanged", () => {
+    const env: NodeJS.ProcessEnv = { ...vision };
+    applyDotEnv(content.replaceAll("fixture", "project"), env, CAPTURE_ENV_KEYS);
+    expect(env).toEqual(vision);
+  });
+
+  it("keeps a partial first file from borrowing values from a later file", () => {
+    const env: NodeJS.ProcessEnv = {};
+    applyDotEnv("HYPERFRAMES_VISION_API_KEY=first-file", env, CAPTURE_ENV_KEYS);
+    applyDotEnv(content, env, CAPTURE_ENV_KEYS);
+    expect(env).toEqual({ HYPERFRAMES_VISION_API_KEY: "first-file" });
+  });
+
+  it("keeps the first complete file when another endpoint is loaded later", () => {
+    const env: NodeJS.ProcessEnv = {};
+    applyDotEnv(content, env, CAPTURE_ENV_KEYS);
+    applyDotEnv(content.replaceAll("fixture", "parent"), env, CAPTURE_ENV_KEYS);
+    expect(env).toEqual(vision);
+  });
+
+  it("also keeps credential sources separate without an allowlist", () => {
+    const env: NodeJS.ProcessEnv = { HYPERFRAMES_VISION_API_KEY: "inherited" };
+    applyDotEnv(content, env);
+    expect(env).toEqual({ HYPERFRAMES_VISION_API_KEY: "inherited" });
+  });
+
+  it("keeps mixed-case project keys separate on a case-insensitive environment", () => {
+    const values: NodeJS.ProcessEnv = { HYPERFRAMES_VISION_API_KEY: "inherited" };
+    const env = new Proxy(values, {
+      has: (target, key) => typeof key === "string" && key.toUpperCase() in target,
+      set: (target, key, value: string) => {
+        if (typeof key !== "string") return false;
+        target[key.toUpperCase()] = value;
+        return true;
+      },
+    });
+    applyDotEnv(
+      "hyperframes_vision_base_url=https://project.example/v1\nHyperFrames_Vision_Model=project-model",
+      env,
+    );
+    expect(values).toEqual({ HYPERFRAMES_VISION_API_KEY: "inherited" });
   });
 });

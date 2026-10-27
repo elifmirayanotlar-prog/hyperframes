@@ -1,6 +1,13 @@
 import { FEEDBACK_EMAIL_ENV } from "./feedbackSource.js";
 
+const CUSTOM_VISION_ENV_KEYS = [
+  "HYPERFRAMES_VISION_BASE_URL",
+  "HYPERFRAMES_VISION_API_KEY",
+  "HYPERFRAMES_VISION_MODEL",
+];
+
 export const CAPTURE_ENV_KEYS = [
+  ...CUSTOM_VISION_ENV_KEYS,
   "OPENROUTER_API_KEY",
   "GEMINI_API_KEY",
   "GOOGLE_API_KEY",
@@ -78,6 +85,7 @@ export function applyDotEnv(
   allowedKeys?: readonly string[],
 ): void {
   const allowed = allowedKeys === undefined ? undefined : new Set(allowedKeys);
+  const visionAlreadySet = CUSTOM_VISION_ENV_KEYS.some((key) => key in env);
   for (const entry of logicalLines(content).map(entryOf)) {
     if (!entry) continue;
     const [key, value] = entry;
@@ -85,6 +93,7 @@ export function applyDotEnv(
       key &&
       key.toUpperCase() !== FEEDBACK_EMAIL_ENV &&
       (allowed === undefined || allowed.has(key)) &&
+      !(visionAlreadySet && CUSTOM_VISION_ENV_KEYS.includes(key.toUpperCase())) &&
       !(key in env)
     )
       env[key] = value;
