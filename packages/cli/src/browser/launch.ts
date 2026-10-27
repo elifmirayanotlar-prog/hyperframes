@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import { explainChromeLaunchFailure } from "@hyperframes/engine/chrome-startup";
 import type { Browser, LaunchOptions, PuppeteerNode } from "puppeteer-core";
 import { withHyperframesBrowserMarker } from "@hyperframes/core/browser-marker";
@@ -150,6 +151,10 @@ function withRemediation(error: unknown): unknown {
   return remediation ? new Error(remediation, { cause: error }) : error;
 }
 
+function destroyCdpPipes(child: ChildProcess): void {
+  for (const pipe of child.stdio.slice(3)) pipe?.destroy();
+}
+
 async function launchOwnedBrowser(
   puppeteer: PuppeteerNode,
   options: LaunchOptions,
@@ -189,8 +194,7 @@ async function launchOwnedBrowser(
     if (watchdog) watchdogs.set(browser, watchdog);
     child.once("exit", () => {
       browsers.delete(browser);
-      // An orphaned helper can keep the CDP pipe's far end open, so the sockets never see EOF and hold the CLI alive.
-      for (const pipe of child.stdio.slice(3)) pipe?.destroy();
+      destroyCdpPipes(child);
     });
     return browser;
   } finally {
