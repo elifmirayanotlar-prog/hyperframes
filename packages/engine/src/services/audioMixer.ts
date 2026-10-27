@@ -783,6 +783,7 @@ async function extractAudioSegment(
       : []),
     "-i",
     readFrom,
+    ...(metadata ? ["-map", `0:a:${metadata.audioStream}`] : []),
   ];
   args.push("-vn", "-acodec", "pcm_s16le", "-ar", "48000", ...outputArgs);
   if (normalizedPlaybackRate !== 1 || options?.padToDuration) args.push("-t", String(duration));
