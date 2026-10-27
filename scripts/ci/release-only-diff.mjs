@@ -24,21 +24,22 @@ function withoutVersion(text) {
   }
 }
 
+/** The new version when the only difference between two manifest texts is `version`, else null. */
+function versionBump(was, now) {
+  const a = was === null ? null : withoutVersion(was);
+  const b = now === null ? null : withoutVersion(now);
+  return a && b && sameJson(a.rest, b.rest) && a.version !== b.version ? b.version : null;
+}
+
 /** Sorts changed paths into the release's own and the rest; before and after read a path at each end, or null. */
 export function classify(paths, before, after) {
   const other = [];
   const versions = new Map();
   for (const path of paths) {
     if (RELEASE_NOTES.test(path) || path === CHANGELOG) continue;
-    if (MANIFESTS.has(basename(path))) {
-      const was = before(path) === null ? null : withoutVersion(before(path));
-      const now = after(path) === null ? null : withoutVersion(after(path));
-      if (was && now && sameJson(was.rest, now.rest) && was.version !== now.version) {
-        versions.set(path, now.version);
-        continue;
-      }
-    }
-    other.push(path);
+    const bumped = MANIFESTS.has(basename(path)) ? versionBump(before(path), after(path)) : null;
+    if (bumped === null) other.push(path);
+    else versions.set(path, bumped);
   }
   return { releaseOnly: paths.length > 0 && other.length === 0, other, versions };
 }
