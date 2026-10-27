@@ -1235,8 +1235,21 @@ async function extractVideoFramesRangeUnredacted(
   // emits that last slot: the fps filter ends a `-t` window at the nearest slot. A
   // decimal rate counts zero frames here and keeps the `-t` window.
   const boundVfrFrameCount = metadata.isVFR && totalFrames > 0;
+  const leadInSeconds = options.finalFrameOnly
+    ? startTime
+    : await leadInSecondsUnlessAborted(videoPath, startTime, signal);
+  const secondSegmentLeadInSeconds =
+    totalFrames > segmentFrames && !options.finalFrameOnly
+      ? await leadInSecondsUnlessAborted(videoPath, startTime + EXTRACTION_SEGMENT_SECONDS, signal)
+      : 0;
+  const leadInCostsMoreThanASegment =
+    Math.max(leadInSeconds, secondSegmentLeadInSeconds) >= EXTRACTION_SEGMENT_SECONDS;
+  const splitsIntoSegments =
+    options.frameRanges ||
+    boundVfrFrameCount ||
+    (totalFrames > segmentFrames && !leadInCostsMoreThanASegment);
   const extract = (hwaccel: string[]) =>
-    sampleAtOutputFps && (options.frameRanges || boundVfrFrameCount || totalFrames > segmentFrames)
+    sampleAtOutputFps && splitsIntoSegments
       ? runSegmentedExtraction({
           decodeArgs: [...hwaccel, ...decodeArgs],
           filterAndEncodeArgs: (seek) => [...filterArgsFor(seek), ...encodeArgs],
@@ -1252,16 +1265,10 @@ async function extractVideoFramesRangeUnredacted(
           runOptions,
         })
       : inExtractionSlot(
-          async () =>
+          () =>
             runFfmpeg([...hwaccel, ...args, ...filterArgsFor(startTime), ...encodeArgs], {
               ...runOptions,
-              timeout: stallTimeoutMs(
-                ffmpegProcessTimeout,
-                options.finalFrameOnly
-                  ? startTime
-                  : await leadInSecondsUnlessAborted(videoPath, startTime, signal),
-                metadata.fps,
-              ),
+              timeout: stallTimeoutMs(ffmpegProcessTimeout, leadInSeconds, metadata.fps),
             }),
           signal,
         );
