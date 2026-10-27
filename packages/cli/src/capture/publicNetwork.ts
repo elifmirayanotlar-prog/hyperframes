@@ -47,7 +47,6 @@ export function isPublicIPv4(address: string): boolean {
   return !NON_PUBLIC_RANGES.some(({ start, end }) => value >= start && value < end);
 }
 
-/** Name-only checks: a literal must be a public IPv4 and a name must look public. Returns the normalized host. */
 export function assertPublicHostname(hostname: string): string {
   const host = hostname.toLowerCase().replace(/\.$/, "");
   if (isIP(host) === 4) {
@@ -197,7 +196,6 @@ async function pinnedRoute(target: URL, signal: AbortSignal): Promise<Route> {
   };
 }
 
-// The proxy resolves the name, so only name-level checks are possible here.
 async function upstreamRoute(
   target: URL,
   proxy: UpstreamProxy,
