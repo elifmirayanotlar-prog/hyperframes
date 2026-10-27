@@ -197,7 +197,7 @@ async function launchOwnedBrowser(
     gracefulClose.set(browser, browser.close.bind(browser));
     browser.close = () => closeManagedBrowser(browser);
     const newPage = browser.newPage;
-    browser.newPage = async (...args) => closeOnCrash(await newPage.apply(browser, args));
+    browser.newPage = async (...args) => closeOnRendererCrash(await newPage.apply(browser, args));
     child.once("exit", () => {
       browsers.delete(browser);
       destroyBrowserPipes(child);
@@ -210,11 +210,9 @@ async function launchOwnedBrowser(
   }
 }
 
-/** A crashed page answers nothing, so its pending calls would wait out protocolTimeout; closing fails them now. */
-function closeOnCrash(page: Page): Page {
+function closeOnRendererCrash(page: Page): Page {
   page.once("error", () => {
     notePageCrash();
-    // expected: the crashed target may already be gone.
     page.close().catch(() => undefined);
   });
   return page;

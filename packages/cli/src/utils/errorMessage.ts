@@ -1,22 +1,19 @@
 let pageCrashed = false;
 
-/** Puppeteer emits "error" on a page only when its renderer crashes, most often out of memory. */
 export function notePageCrash(): void {
   pageCrashed = true;
 }
 
-// One flag per process: after a crash, a long-lived server labels every later page close as the crash.
-const CLOSED_PAGE = /Target closed|detached Frame|Session closed/;
+const CLOSED_AFTER_CRASH = /Target closed|detached Frame|Session closed/;
 
-export function normalizeErrorMessage(error: unknown): string {
-  const message = messageOf(error);
-  return pageCrashed && CLOSED_PAGE.test(message)
+function namedAfterCrash(message: string): string {
+  return pageCrashed && CLOSED_AFTER_CRASH.test(message)
     ? `The browser page crashed, most likely out of memory: ${message}`
     : message;
 }
 
-function messageOf(error: unknown): string {
-  if (error instanceof Error) return error.message;
+export function normalizeErrorMessage(error: unknown): string {
+  if (error instanceof Error) return namedAfterCrash(error.message);
   if (typeof error === "string") return error;
   if (typeof error === "object" && error !== null) {
     const msg = (error as Record<string, unknown>).message;
