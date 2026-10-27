@@ -30,7 +30,15 @@ import { runWithConcurrencyLimit } from "../utils/concurrency.js";
 import { CliRuntimeError, failCommand } from "../utils/commandResult.js";
 // fallow-ignore-file complexity
 import { defineCommand } from "citty";
-import { existsSync, mkdtempSync, readFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join, relative, isAbsolute, basename, posix } from "node:path";
 import {
@@ -137,6 +145,23 @@ const VIDEO_FRAME_EXTRACT_CONCURRENCY = 4;
 /** Keep millisecond-level snapshot timing proof without leaking floating-point noise. */
 export function formatSnapshotTimestamp(time: number): string {
   return `${Number(time.toFixed(3))}s`;
+}
+
+/** What reached the disk of the stills a run says it captured, as absolute paths; an empty or missing file is not a snapshot. */
+export function snapshotsOnDisk(projectDir: string, paths: string[], requested: number) {
+  const written: string[] = [];
+  const missing: string[] = [];
+  for (const path of paths) {
+    const absolute = resolve(projectDir, path);
+    let size = 0;
+    try {
+      size = statSync(absolute).size;
+    } catch {
+      // absent: counted as missing below
+    }
+    (size > 0 ? written : missing).push(absolute);
+  }
+  return { written, missing, requested };
 }
 
 export const SNAPSHOT_IMAGE_NAME =
@@ -627,6 +652,7 @@ async function captureSnapshots(
   const server = await serveCapturePage(projectDir, html, opts.autoProxy);
 
   const savedPaths: string[] = [];
+  let requested = 0;
   let pairSheetFailure: string | null = null;
 
   try {
@@ -692,7 +718,7 @@ async function captureSnapshots(
       });
 
       if (duration <= 0 && !opts.at?.length) {
-        return { paths: [], warnings, pairSheetsSkipped: false };
+        return { paths: [], requested: 0, warnings, pairSheetsSkipped: false };
       }
 
       const readTiming = () =>
@@ -739,6 +765,7 @@ async function captureSnapshots(
               at: opts.at,
               includeEnd: opts.includeEnd,
             });
+      requested = positions.length;
       if (range)
         log(
           `   Sampling ${positions.length} frames within ${range[0]}–${range[1]}s${opts.composition ? ` (composition ${opts.composition})` : ""}`,
@@ -1103,6 +1130,7 @@ async function captureSnapshots(
 
   return {
     paths: savedPaths,
+    requested,
     warnings,
     pairSheetsSkipped: pairSheetFailure !== null,
     ...(review && reviewList
@@ -1122,6 +1150,8 @@ async function captureSnapshots(
 interface CapturedSnapshots {
   /** Project-relative where possible, as printed. */
   paths: string[];
+  /** How many stills the run set out to capture. */
+  requested: number;
   /** Why a frame may differ from the composition: shown on the console and in `--json`. */
   warnings: string[];
   /** --against wrote no pair sheets because sharp could not load. */
@@ -1454,17 +1484,27 @@ export default defineCommand({
           review: reviewMode,
           log,
         });
-        const paths = captured.paths;
-        const framePaths = paths.map((path) => resolve(project.dir, path));
+        const onDisk = snapshotsOnDisk(project.dir, captured.paths, captured.requested);
+        const paths = onDisk.written;
+        const framePaths = paths;
         reportArtifacts("snapshot", "frame", framePaths);
 
-        if (paths.length === 0) {
+        if (captured.paths.length === 0) {
           fail(`\n${c.error("✗")} Could not determine composition duration — no frames captured`);
         }
 
-        log(`\n${c.success("◇")}  ${paths.length} snapshots saved to ${snapshotDir}`);
+        const short = paths.length < onDisk.requested;
+        const mark = short ? c.error("✗") : c.success("◇");
+        const count = short ? `${paths.length} of ${onDisk.requested}` : String(paths.length);
+        log(`\n${mark}  ${count} snapshots saved to ${snapshotDir}`);
         for (const p of paths) {
           log(`   ${p}`);
+        }
+        if (short) {
+          const gone = onDisk.missing.map((path) => `\n   missing: ${path}`).join("");
+          fail(
+            `${c.error("✗")} Only ${paths.length} of ${onDisk.requested} snapshots are on disk in ${snapshotDir}.${gone}`,
+          );
         }
         if (against) {
           log(
