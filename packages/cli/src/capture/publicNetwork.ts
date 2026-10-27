@@ -207,7 +207,8 @@ async function upstreamRoute(
   assertPublicHostname(target.hostname);
   if (target.protocol === "http:") {
     if (proxy.authorization) headers.set("proxy-authorization", proxy.authorization);
-    return { options: { hostname: proxy.host, port: proxy.port, agent: false, path: target.href } };
+    const path = `${target.origin}${target.pathname}${target.search}`;
+    return { options: { hostname: proxy.host, port: proxy.port, agent: false, path } };
   }
   const tunnel = await openUpstreamTunnel(proxy, connectAuthority(target), { signal });
   return {

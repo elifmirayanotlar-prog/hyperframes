@@ -22,18 +22,18 @@ export function captureUpstreamProxy(
   const raw = env[CAPTURE_PROXY_ENV]?.trim();
   if (!raw) return undefined;
   let url: URL;
+  let credentials: string | undefined;
   try {
     url = new URL(raw);
+    if (url.username || url.password) {
+      credentials = `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`;
+    }
   } catch {
     throw new Error(`${CAPTURE_PROXY_ENV} is not a valid proxy URL`);
   }
   if (url.protocol !== "http:") {
     throw new Error(`${CAPTURE_PROXY_ENV} must be an http:// proxy URL`);
   }
-  const credentials =
-    url.username || url.password
-      ? `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`
-      : undefined;
   return {
     host: url.hostname.replace(/^\[(.*)\]$/, "$1"),
     port: Number(url.port || 80),

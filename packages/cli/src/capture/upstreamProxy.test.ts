@@ -17,6 +17,9 @@ describe("captureUpstreamProxy", () => {
     expect(() => captureUpstreamProxy({ HYPERFRAMES_CAPTURE_PROXY: "http://[bad" })).toThrow(
       /not a valid proxy URL/,
     );
+    expect(() =>
+      captureUpstreamProxy({ HYPERFRAMES_CAPTURE_PROXY: "http://user:%E0%A4%A@proxy:3128" }),
+    ).toThrow(/not a valid proxy URL/);
   });
 
   it("reads host and port, and carries proxy credentials as Basic auth", () => {

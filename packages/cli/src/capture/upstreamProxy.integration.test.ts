@@ -44,6 +44,7 @@ let stallConnect = false;
 
 // The destination is never listening on TCP: the fake upstream hands tunnels to it in-process.
 const destination = createHttpsServer({}, (req, res) => {
+  res.writeHead(200, { "content-type": "text/plain" });
   res.end(`secure ${(req.socket as TLSSocket).servername} ${req.headers.host} ${req.url}`);
 });
 destination.on("tlsClientError", () => {});
@@ -56,6 +57,7 @@ const upstream: Server = createServer((req: IncomingMessage, res) => {
   });
   if (req.url?.endsWith("/stall")) return;
   if (req.url?.endsWith("/refuse")) return void res.writeHead(403).end();
+  res.writeHead(200, { "content-type": "text/plain" });
   res.end(`plain ${req.headers.host} ${req.url}`);
 });
 const upstreamSockets = new Set<Socket>();
@@ -145,11 +147,11 @@ describe("capture with the opt-in upstream proxy", () => {
     expect(transport.resolve4).not.toHaveBeenCalled();
   });
 
-  it("sends an HTTP asset download to the upstream in absolute form", async () => {
-    const response = await publicRequest(`http://${DESTINATION}/logo.svg`);
-    expect(await response.text()).toBe(`plain ${DESTINATION} http://${DESTINATION}/logo.svg`);
+  it("sends an HTTP asset download to the upstream in absolute form, without its fragment", async () => {
+    const response = await publicRequest(`http://${DESTINATION}/logo.svg?v=2#icon`);
+    expect(await response.text()).toBe(`plain ${DESTINATION} http://${DESTINATION}/logo.svg?v=2`);
     expect(received).toEqual([
-      { kind: "http", target: `http://${DESTINATION}/logo.svg`, authorization: auth },
+      { kind: "http", target: `http://${DESTINATION}/logo.svg?v=2`, authorization: auth },
     ]);
     expect(dialed).toEqual([`127.0.0.1:${upstreamPort}`]);
     expect(transport.resolve4).not.toHaveBeenCalled();
