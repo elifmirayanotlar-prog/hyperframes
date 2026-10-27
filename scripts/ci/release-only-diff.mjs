@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-// Says whether a pull request changes only what a release changes: the `version` of package and plugin manifests,
-// the release notes and the changelog. CI skips its heavy suites for such a diff; main and the merge queue run them.
-//   node scripts/ci/release-only-diff.mjs [--base <ref>] [--verify]
-// Base defaults to HEAD^1, the current base tip of a pull request's merge ref. Writes release_only=true|false to
-// $GITHUB_OUTPUT. --verify also checks the release is consistent and exits 1 when it is not.
+// Says whether a pull request changes only a release's own files: manifest versions, release notes, the changelog.
+//   node scripts/ci/release-only-diff.mjs [--base <ref, default HEAD^1>] [--verify]   writes release_only= to $GITHUB_OUTPUT
+// --verify also exits 1 when the release is inconsistent: mixed versions, no notes, an unreviewed TODO, no changelog entry.
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { basename } from "node:path";
