@@ -196,7 +196,7 @@ Source: `packages/lint/src/rules/composition.ts`.
 
 **Warning.** A stylesheet linked from a sub-composition has a rule on `#<root id>`, the id of the sub-composition's root. When the composition is compiled the root is merged into its host, so that selector matches nothing. The same rule in an inline `<style>` is rewritten and works.
 
-**Fix:** Use classes in the linked file, or move the rule into a `<style>` inside the `<template>`.
+**Fix:** Move the rule into a `<style>` inside the `<template>`, or select a child element of the root in the linked file instead of the root itself.
 
 ### `subcomposition_root_styled_by_class`
 

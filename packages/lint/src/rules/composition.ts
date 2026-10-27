@@ -1942,7 +1942,7 @@ export const compositionRules: Array<(ctx: LintContext) => HyperframeLintFinding
         message:
           `The linked stylesheet "${style.rootRelativePath ?? style.file}" has a rule on #${rootId}, the id of this sub-composition's root. ` +
           "The root is merged into its host when the composition is compiled, so that selector matches nothing (the same rule in an inline <style> is rewritten and works).",
-        fixHint: `Use a class on the root or its children instead of #${rootId}, or move the rule into a <style> inside the <template>.`,
+        fixHint: `Move the #${rootId} rules into a <style> inside the <template>, where they are rewritten for the merged root, or select a child element of the root in the linked file instead of the root itself.`,
         snippet: truncateSnippet(style.content.slice(0, 120)),
       }));
   },
