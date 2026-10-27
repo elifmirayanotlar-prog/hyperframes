@@ -191,6 +191,8 @@ export {
   detectGpuEncoder,
   ENCODER_PRESETS,
   getEncoderPreset,
+  appendRateCapArgs,
+  keyframeIntervalToGopSize,
   HLS_MASTER_PLAYLIST,
   HLS_VIDEO_PLAYLIST,
   HLS_AUDIO_PLAYLIST,
@@ -306,6 +308,7 @@ export {
   type WorkerSizingBound,
   type LandedFrame,
   type ParallelProgress,
+  type ParallelWorkerPhaseDiagnostic,
 } from "./services/parallelCoordinator.js";
 
 // ── File server ────────────────────────────────────────────────────────────────
@@ -396,6 +399,7 @@ export {
 
 export { trackChildProcess, killTrackedProcesses } from "./utils/processTracker.js";
 export { renameWithRetry, renameWithRetryAsync } from "./utils/renameWithRetry.js";
+export { removeScratch, collectScratchLeftovers } from "./utils/removeScratch.js";
 
 // drawElement self-verify comparison — shared by the streaming drain
 // (producer) and the parallel disk-path verify (parallelCoordinator).
