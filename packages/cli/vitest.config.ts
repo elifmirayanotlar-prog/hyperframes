@@ -22,14 +22,6 @@ if (process.platform === "win32") {
   process.env.FONTCONFIG_FILE = file;
 }
 
-// The process tests that start a real Chrome; the other *.process.test.ts files spawn no browser.
-const CHROME_PROCESS_TESTS = [
-  "src/browser/chromeOrphans.process.test.ts",
-  "src/browser/launch.process.test.ts",
-  "src/utils/checkDeadline.process.test.ts",
-  "src/warmCheck.process.test.ts",
-];
-
 export default defineConfig({
   resolve: {
     alias: [
@@ -69,8 +61,8 @@ export default defineConfig({
     // hang. Prefer this one config knob over per-test/per-hook timeout bandaids.
     testTimeout: 20_000,
     hookTimeout: 30_000,
-    // Tests that drive a real Chrome run alone, after everything else: a Chrome launching beside
-    // hundreds of parallel test files was starved past its 30 s launch limit on a 4-core runner.
+    // Tests that drive a real Chrome (the four *.process.test.ts named here start one) run alone, after
+    // everything else: a Chrome beside hundreds of parallel files was starved past its 30 s launch limit.
     projects: [
       {
         extends: true,
@@ -81,7 +73,7 @@ export default defineConfig({
             "**/node_modules/**",
             "**/dist/**",
             "src/**/*.{browser,chromium}.test.ts",
-            ...CHROME_PROCESS_TESTS,
+            "src/**/{chromeOrphans,launch,checkDeadline,warmCheck}.process.test.ts",
           ],
           sequence: { groupOrder: 1 },
         },
@@ -90,7 +82,10 @@ export default defineConfig({
         extends: true,
         test: {
           name: "chrome",
-          include: ["src/**/*.{browser,chromium}.test.ts", ...CHROME_PROCESS_TESTS],
+          include: [
+            "src/**/*.{browser,chromium}.test.ts",
+            "src/**/{chromeOrphans,launch,checkDeadline,warmCheck}.process.test.ts",
+          ],
           fileParallelism: false,
           sequence: { groupOrder: 2 },
         },
