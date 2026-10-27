@@ -1,10 +1,7 @@
 const UNIT_MS = { ms: 1, s: 1_000, m: 60_000 } as const;
 
-/**
- * Reads a `--timeout` value as milliseconds. A bare number is milliseconds; `45s`, `2m` and
- * `45000ms` carry their unit. A bare value under 1000 is kept but warned about, since it is
- * almost always seconds typed where milliseconds are read.
- */
+/** Reads a `--timeout` as milliseconds; `45s`, `2m` and `45000ms` carry a unit.
+ * A bare value under 1000 is kept but warned about: it is usually seconds. */
 export function parseTimeoutMs(
   raw: unknown,
   fallback: number,
