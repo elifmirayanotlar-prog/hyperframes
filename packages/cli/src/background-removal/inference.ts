@@ -74,7 +74,7 @@ export async function createSession(options: CreateSessionOptions = {}): Promise
     });
 
   const coreMlTemp = choice.label === "CoreML" ? trackCoreMlTemp() : undefined;
-  // A signal stops the run through the CLI's own shutdown, which releases the session so CoreML removes its temp folders.
+  // A signal stops the run through the CLI's shutdown, which releases the session so CoreML removes its temp files.
   const unregister = coreMlTemp && registerBrowserSessionCleanup(async () => session?.release());
   let session: InferenceSession;
   let providerUsed = choice.label;
