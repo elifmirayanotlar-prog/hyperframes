@@ -2730,7 +2730,7 @@ describe("bundleToSingleHtml unknown enum values", () => {
     const bundled = await bundleToSingleHtml(makeSubCompProject('{"accent":"orange"}'));
 
     expect(bundled).toContain("window.__hfVariablesByComp = Object.assign({}, ");
-    expect(bundled).toContain('{ "card": { "accent": "orange" } }');
+    expect(bundled).toContain('{"card":{"accent":"orange"}}');
     expect(bundled).toMatch(/\[data-composition-id="card"\]\s*\{[^}]*--accent:\s*orange/);
     expect(bundled).not.toContain("--accent: green");
   });

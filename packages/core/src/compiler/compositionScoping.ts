@@ -757,8 +757,7 @@ export function buildVariablesByCompScript(
   return `window.__hfVariablesByComp = Object.assign({}, window.__hfVariablesByComp || {}, ${json});`;
 }
 
-/** Writes the table in <head>, which runs while the page parses: body scripts wait for fonts, and the runtime binds
- * each instance's variable text before they run. */
+/** Writes the table in <head>, so it exists before the composition scripts, which wait for web fonts. */
 export function emitVariablesByCompScript(
   document: Document,
   variablesByComp: Record<string, Record<string, unknown>>,
