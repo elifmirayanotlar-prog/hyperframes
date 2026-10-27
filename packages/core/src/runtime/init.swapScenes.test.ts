@@ -1989,7 +1989,10 @@ describe("the preview's scene window", () => {
       body: '<audio src="/two.mp3" data-start="0"></audio>',
       hash: "h2c",
     };
-    for (const edit of [fetching, untrimmed])
+    // The window times a parked scene by its host's own seconds: a reference start or no length has none.
+    const referenceStart: Scene = { ...S2, start: "s1" as unknown as number, hash: "h2d" };
+    const noLength: Scene = { ...S2, duration: 0, hash: "h2e" };
+    for (const edit of [fetching, untrimmed, referenceStart, noLength])
       await expect(window.__hfSwapScenes!(preview([S0, S1, edit]).html)).rejects.toThrow("s2");
     await seekAndSettle(5);
     expect(sceneHost("s2").textContent).toBe("two");

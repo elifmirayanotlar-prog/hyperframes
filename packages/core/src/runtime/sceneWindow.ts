@@ -33,15 +33,19 @@ const parkable = (host: Element): boolean => {
   );
 };
 
+/** A host's window when its own attributes give it in seconds; a reference start or no length gives none. */
+export function ownWindow(host: Element): { start: number; end: number } | null {
+  const start = Number(host.getAttribute("data-start")?.trim() || Number.NaN);
+  const duration = ownDuration(host);
+  return Number.isFinite(start) && duration > 0 ? { start, end: start + duration } : null;
+}
+
 function windowedHosts(): Array<WindowedScene & { host: Element }> {
   if (!document.querySelector(`meta[name="${SCENE_PARTS_META}"]`)) return [];
   return Array.from(document.querySelectorAll(`[${SCENE_PART_ATTR}]:not(style, script)`))
     .flatMap((host) => {
-      const start = Number(host.getAttribute("data-start")?.trim() || Number.NaN);
-      const duration = ownDuration(host);
-      const name = host.getAttribute(SCENE_PART_ATTR)!;
-      const windowed = Number.isFinite(start) && duration > 0 && parkable(host);
-      return windowed ? [{ name, host, start, end: start + duration }] : [];
+      const own = parkable(host) ? ownWindow(host) : null;
+      return own ? [{ name: host.getAttribute(SCENE_PART_ATTR)!, host, ...own }] : [];
     })
     .sort((a, b) => a.start - b.start);
 }
