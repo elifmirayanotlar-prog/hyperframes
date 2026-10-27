@@ -22,6 +22,14 @@ if (process.platform === "win32") {
   process.env.FONTCONFIG_FILE = file;
 }
 
+// The process tests that start a real Chrome; the other *.process.test.ts files spawn no browser.
+const CHROME_PROCESS_TESTS = [
+  "src/browser/chromeOrphans.process.test.ts",
+  "src/browser/launch.process.test.ts",
+  "src/utils/checkDeadline.process.test.ts",
+  "src/warmCheck.process.test.ts",
+];
+
 export default defineConfig({
   resolve: {
     alias: [
@@ -69,7 +77,12 @@ export default defineConfig({
         test: {
           name: "unit",
           include: ["src/**/*.test.ts"],
-          exclude: ["**/node_modules/**", "**/dist/**", "src/**/*.{browser,chromium}.test.ts"],
+          exclude: [
+            "**/node_modules/**",
+            "**/dist/**",
+            "src/**/*.{browser,chromium}.test.ts",
+            ...CHROME_PROCESS_TESTS,
+          ],
           sequence: { groupOrder: 1 },
         },
       },
@@ -77,7 +90,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "chrome",
-          include: ["src/**/*.{browser,chromium}.test.ts"],
+          include: ["src/**/*.{browser,chromium}.test.ts", ...CHROME_PROCESS_TESTS],
           fileParallelism: false,
           sequence: { groupOrder: 2 },
         },
