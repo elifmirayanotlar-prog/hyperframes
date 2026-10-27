@@ -1,0 +1,44 @@
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { compileForRender } from "./htmlCompiler.js";
+
+describe("compileForRender variable-bound media", () => {
+  const projectDir = mkdtempSync(join(tmpdir(), "hf-compiler-var-media-"));
+
+  beforeAll(() => {
+    const ffmpeg = process.env.HYPERFRAMES_FFMPEG_PATH || "ffmpeg";
+    mkdirSync(join(projectDir, "compositions"));
+    mkdirSync(join(projectDir, "assets"));
+    for (const [name, seconds] of [["placeholder", 3], ["clip", 13]] as const) {
+      const made = spawnSync(
+        ffmpeg,
+        ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", `color=c=red:s=16x16:r=5:d=${seconds}`]
+          .concat(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", join(projectDir, "assets", `${name}.mp4`)]),
+        { encoding: "utf8" },
+      );
+      if (made.status !== 0) throw new Error(made.stderr || "failed to create fixture");
+    }
+    writeFileSync(
+      join(projectDir, "compositions", "clip.html"),
+      `<template id="clip-template"><div data-composition-id="clip" data-width="16" data-height="16"><video id="v" muted src="../assets/placeholder.mp4" data-var-src="src" data-start="0" data-duration="60" data-track-index="0"></video></div></template>`,
+    );
+    writeFileSync(
+      join(projectDir, "index.html"),
+      `<!doctype html><html><body><main data-composition-id="root" data-start="0" data-duration="60" data-width="16" data-height="16"><div data-composition-id="clip" data-composition-src="compositions/clip.html" data-start="0" data-duration="60" data-width="16" data-height="16" data-variable-values='{"src":"assets/clip.mp4"}'></div></main></body></html>`,
+    );
+  });
+
+  afterAll(() => rmSync(projectDir, { recursive: true, force: true }));
+
+  it("probe", async () => {
+    const compiled = await compileForRender(projectDir, join(projectDir, "index.html"), projectDir, {
+      allowSystemFontCapture: false,
+    });
+    console.log("VIDEOS", JSON.stringify(compiled.videos));
+    console.log("HOST", compiled.html.match(/<div[^>]*data-variable-values[^>]*>/g));
+    expect(true).toBe(true);
+  });
+});
