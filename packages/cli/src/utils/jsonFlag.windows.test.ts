@@ -16,7 +16,7 @@ describe.runIf(process.platform === "win32")(
       launcher = join(dir, "launch.cmd");
       writeFileSync(
         join(dir, "echo.mjs"),
-        'import { readFileSync } from "node:fs";\nprocess.stdout.write(process.argv[2] === "-" ? readFileSync(0, "utf8") : process.argv[2]);\n',
+        'import { readFileSync } from "node:fs";\nprocess.stdout.write(process.argv[2] === "-" ? readFileSync(0).toString("base64") : process.argv[2]);\n',
       );
       writeFileSync(launcher, '@node "%~dp0echo.mjs" %*\r\n');
       writeFileSync(join(dir, "g.json"), '{"preset":"warm-daylight","intensity":0.6}');
@@ -35,9 +35,14 @@ describe.runIf(process.platform === "win32")(
       expect(readJsonFlag("--grading", arg)).toEqual({ preset: "warm-daylight", intensity: 0.6 });
     });
 
-    it("delivers piped JSON through -", () => {
-      const text = powershell(`'{"preset":"skin-soft"}' | & '${launcher}' -`);
-      expect(readJsonFlag("--grading", text)).toEqual({ preset: "skin-soft" });
+    it("delivers piped JSON through -, in whatever bytes PowerShell pipes", () => {
+      const piped = Buffer.from(
+        powershell(`'{"preset":"skin-soft"}' | & '${launcher}' -`),
+        "base64",
+      );
+      const file = join(dir, "piped.json");
+      writeFileSync(file, piped);
+      expect(readJsonFlag("--grading", file)).toEqual({ preset: "skin-soft" });
     });
   },
 );
