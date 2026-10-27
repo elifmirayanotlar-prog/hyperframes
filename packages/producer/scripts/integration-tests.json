@@ -29,6 +29,7 @@
   "src/services/render/deliveryRender.integration.test.ts",
   "src/services/render/firstFrameStartingState.integration.test.ts",
   "src/services/render/hlsRender.integration.test.ts",
+  "src/services/render/lateVisibleImageGrading.integration.test.ts",
   "src/services/render/motionBlurVideo.integration.test.ts",
   "src/services/render/renderCancel.integration.test.ts",
   "src/services/render/segmentedColorGrading.integration.test.ts",

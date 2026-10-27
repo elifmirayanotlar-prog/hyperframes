@@ -68,6 +68,17 @@ describe("producer test classification", () => {
   });
 });
 
+it("keeps the late-visible image grading render test in the integration lane, where sockets are allowed", () => {
+  const test = discoverProducerTests().find(
+    ({ file }) => file === "src/services/render/lateVisibleImageGrading.integration.test.ts",
+  );
+  assert.deepEqual(test, {
+    file: "src/services/render/lateVisibleImageGrading.integration.test.ts",
+    runner: "vitest",
+    lane: "integration",
+  });
+});
+
 it("selects the distributed smoke and playback parity tests as integration tests", () => {
   const files = [
     "tests/distributed/_smoke/webm-concat-copy.test.ts",
