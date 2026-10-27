@@ -25,7 +25,8 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
-const { linkSync: realLinkSync, renameSync: realRenameSync } = await vi.importActual<typeof import("node:fs")>("node:fs");
+const { linkSync: realLinkSync, renameSync: realRenameSync } =
+  await vi.importActual<typeof import("node:fs")>("node:fs");
 
 const platform = process.platform;
 const homes: string[] = [];
