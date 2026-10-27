@@ -81,6 +81,7 @@ interface Scene {
   hash: string;
   extraAttrs?: string;
   script?: string;
+  duration?: number;
 }
 
 function preview(scenes: Scene[], shared = "s1", sharedMarkup = "") {
@@ -92,11 +93,11 @@ function preview(scenes: Scene[], shared = "s1", sharedMarkup = "") {
     `<meta name="hf-scene-parts" content="${manifest}"><style>.shared{}</style>` +
     scenes.map((s) => `<style data-hf-scene="${s.id}">${s.css}</style>`).join("");
   const body =
-    `<div data-composition-id="main" data-root="true" data-start="0" data-duration="${Math.max(6, ...scenes.map((s) => s.start + 2))}">${sharedMarkup}` +
+    `<div data-composition-id="main" data-root="true" data-start="0" data-duration="${Math.max(6, ...scenes.map((s) => s.start + (s.duration ?? 2)))}">${sharedMarkup}` +
     scenes
       .map(
         (s) =>
-          `<div data-composition-id="${s.id}" data-hf-scene="${s.id}" data-start="${s.start}" data-duration="2"${s.extraAttrs ?? ""}>${s.body}</div>`,
+          `<div data-composition-id="${s.id}" data-hf-scene="${s.id}" data-start="${s.start}" data-duration="${s.duration ?? 2}"${s.extraAttrs ?? ""}>${s.body}</div>`,
       )
       .join("") +
     `</div>` +
@@ -1947,6 +1948,22 @@ describe("the preview's scene window", () => {
     expect(cssText()).toContain(".two{}");
     await seekAndSettle(5);
     expect(sceneHost("s2").textContent).toBe("two, edited");
+  });
+
+  it("retimes a parked scene an edit moves, for when it mounts and as it mounts", async () => {
+    bootWindowed([S0, S1, S2], trackingRoot().root);
+    await tick();
+    // From 4 s to 1 s, and 3 s long: paused at 1.5 it plays, where before it was not even next.
+    const moved: Scene = { ...S2, start: 1, duration: 3, hash: "h2b" };
+    await window.__hfSwapScenes!(preview([S0, S1, moved]).html);
+    expect(parked()).toEqual(["s2"]);
+    await seekAndSettle(1.5);
+    const host = sceneHost("s2");
+    expect([
+      host.textContent,
+      host.getAttribute("data-start"),
+      host.getAttribute("data-hf-authored-duration"),
+    ]).toEqual(["two", "1", "3"]);
   });
 
   it("still mounts parked scenes after an edit to a mounted one", async () => {

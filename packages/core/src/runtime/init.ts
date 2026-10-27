@@ -4308,6 +4308,7 @@ export function initSandboxRuntimeModular(): void {
       document
         .querySelector(`meta[name="${SCENE_PARTS_META}"]`)
         ?.setAttribute("content", JSON.stringify(nextParts));
+      windowScenes = windowedScenes();
       postTimeline();
       return;
     }
