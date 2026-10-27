@@ -18,7 +18,11 @@ import { HistoryBusyError, processStart, takeHistoryOwnership } from "./ownerLoc
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, linkSync: vi.fn(actual.linkSync), renameSync: vi.fn(actual.renameSync) };
+  return {
+    ...actual,
+    linkSync: vi.fn(actual.linkSync),
+    renameSync: vi.fn(actual.renameSync),
+  };
 });
 
 const { linkSync: realLinkSync, renameSync: realRenameSync } = await vi.importActual<typeof import("node:fs")>("node:fs");
