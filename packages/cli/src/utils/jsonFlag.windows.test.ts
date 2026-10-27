@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readJsonFlag } from "./jsonFlag.js";
 
-// A .cmd launcher run from PowerShell, as npm's and Desktop's hyperframes.cmd are.
+// A .cmd launcher run from PowerShell, as npm's hyperframes.cmd is.
 describe.runIf(process.platform === "win32")(
   "JSON flags through a PowerShell .cmd launcher",
   () => {

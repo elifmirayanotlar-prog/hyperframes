@@ -1,8 +1,7 @@
 /**
- * One reader for every CLI flag whose value is JSON. The value is inline JSON
- * (starts with `{` or `[`), `-` for stdin, or a file path. PowerShell strips the
- * quotes from inline JSON passed to a `.cmd` launcher, so Windows callers need the
- * file or stdin form.
+ * Reads a JSON flag: inline JSON, `-` for stdin or a file path.
+ * PowerShell strips the quotes from inline JSON passed to a `.cmd`,
+ * so Windows callers need the file or stdin form.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -59,7 +58,7 @@ export function readJsonFlagText(value: string, partialIo: Partial<JsonFlagIO> =
 export const inlineJsonHint = (flag: string) =>
   `PowerShell strips the quotes from inline JSON; pass a file (${flag} payload.json) or pipe it (${flag} -)`;
 
-/** The parsed value of a JSON flag; throws a plain Error naming the flag and, for inline JSON, the Windows fix. */
+/** The parsed value of a JSON flag; an Error names the flag and, for inline JSON, the Windows fix. */
 export function readJsonFlag(flag: string, value: string, io?: Partial<JsonFlagIO>): unknown {
   let text: string;
   try {
