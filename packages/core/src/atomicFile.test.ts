@@ -385,7 +385,9 @@ describe("createFileAtomically", () => {
 describe("replaceFileAtomically on a busy target", () => {
   const dirs: string[] = [];
   const platform = process.platform;
-  beforeEach(() => Object.defineProperty(process, "platform", { value: "win32", configurable: true }));
+  beforeEach(() =>
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true }),
+  );
   afterEach(() => {
     Object.defineProperty(process, "platform", { value: platform, configurable: true });
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
