@@ -458,6 +458,38 @@ describe("a copy installed beside the CLI", () => {
     }
   });
 
+  it("finds the pinned copy in a host folder not named node_modules, though a stray one sits above it", () => {
+    const root = mkdtempSync(join(tmpdir(), "hf-beside-vendor-"));
+    const copy = (dir: string, version: string, label: string) => {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ version, main: "index.js" }));
+      writeFileSync(join(dir, "index.js"), `module.exports = { copy: ${JSON.stringify(label)} };`);
+    };
+    copy(join(root, "node_modules", "onnxruntime-node"), "0.0.1", "stray");
+    const pin = OPTIONAL_PACKAGES["onnxruntime-node"];
+    copy(join(root, "app", "vendor", "onnxruntime-node"), pin, "pinned");
+    const bundle = join(root, "app", "cli", "optionalPackages.mjs");
+    buildSync({
+      entryPoints: [fileURLToPath(new URL("./optionalPackages.ts", import.meta.url))],
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      outfile: bundle,
+    });
+    const script = `const m = await import(${JSON.stringify(pathToFileURL(bundle).href)});
+console.log(JSON.stringify(m.loadBesideCli("onnxruntime-node")));`;
+    try {
+      const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+        encoding: "utf-8",
+        env: { ...process.env, NODE_PATH: join(root, "app", "vendor") },
+      });
+      expect(child.stderr).toBe("");
+      expect(JSON.parse(child.stdout)).toEqual({ copy: "pinned" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("ignores it when its manifest is unreadable, instead of throwing", () => {
     const { root, cliUrl } = layout(OPTIONAL_PACKAGES["onnxruntime-node"]);
     writeFileSync(join(root, "node_modules", "onnxruntime-node", "package.json"), "{ version: 1");

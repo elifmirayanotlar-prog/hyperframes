@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import { buildNpmCommand } from "./npxCommand.js";
 
 /** Module type of each optional package; the keys are the only names the loader accepts. */
@@ -257,14 +257,19 @@ export function pinnedPackageBesideCli(
     hasPinnedVersion(join(dir, name), name),
   );
   if (pinnedFolder === undefined) return null;
-  try {
-    return {
-      resolution: "entry",
-      path: realpathSync(req.resolve(name, { paths: [pinnedFolder] })),
-    };
-  } catch {
-    return { resolution: "package", path: realpathSync(join(pinnedFolder, name)) };
-  }
+  const copy = realpathSync(join(pinnedFolder, name));
+  const inside = (resolve: () => string) => {
+    try {
+      const entry = realpathSync(resolve());
+      return entry.startsWith(copy + sep) ? entry : null;
+    } catch {
+      return null;
+    }
+  };
+  const entry =
+    inside(() => createRequire(join(copy, "package.json")).resolve(name)) ??
+    inside(() => req.resolve(copy));
+  return entry ? { resolution: "entry", path: entry } : { resolution: "package", path: copy };
 }
 
 function hasPinnedVersion(copy: string, name: PinnedPackage): boolean {
