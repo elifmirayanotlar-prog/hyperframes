@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { basename, dirname, join, sep } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { buildNpmCommand } from "./npxCommand.js";
 
 /** Module type of each optional package; the keys are the only names the loader accepts. */
@@ -254,22 +254,17 @@ export function pinnedPackageBesideCli(
 ): { resolution: "entry" | "package"; path: string } | null {
   const req = createRequire(cliUrl);
   try {
-    let entry: string;
-    try {
-      entry = realpathSync(req.resolve(name));
-    } catch {
-      const copy = (req.resolve.paths(name) ?? [])
-        .map((dir) => join(dir, name))
-        .find((dir) => existsSync(join(dir, "package.json")));
-      return copy && hasPinnedVersion(copy, name)
-        ? { resolution: "package", path: realpathSync(copy) }
-        : null;
-    }
+    // The first folder on require's paths holding the pinned version, loaded by its own path: a copy of another version
+    // nearer on the paths (a person's ~/node_modules) must not hide the host's, nor send the CLI to install its own.
     const copy = (req.resolve.paths(name) ?? [])
       .map((dir) => join(dir, name))
-      .find((dir) => existsSync(dir) && entry.startsWith(realpathSync(dir) + sep));
+      .find((dir) => existsSync(join(dir, "package.json")) && hasPinnedVersion(dir, name));
     if (!copy) return null;
-    return hasPinnedVersion(copy, name) ? { resolution: "entry", path: entry } : null;
+    try {
+      return { resolution: "entry", path: realpathSync(req.resolve(copy)) };
+    } catch {
+      return { resolution: "package", path: realpathSync(copy) };
+    }
   } catch {
     return null;
   }

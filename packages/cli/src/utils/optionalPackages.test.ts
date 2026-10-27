@@ -440,13 +440,18 @@ describe("a copy installed beside the CLI", () => {
     }
   });
 
-  it("checks the copy require would load first, not a later pinned one", () => {
-    const { root, cliUrl } = layout(OPTIONAL_PACKAGES["onnxruntime-node"]);
+  it("finds the pinned copy past a nearer copy of another version, which must not send the CLI to install its own", () => {
+    const pin = OPTIONAL_PACKAGES["onnxruntime-node"];
+    const { root, cliUrl } = layout(pin);
     const nearer = join(root, "node_modules", "hyperframes", "node_modules", "onnxruntime-node");
     mkdirSync(nearer, { recursive: true });
-    writeFileSync(join(nearer, "index.js"), `module.exports = { copy: "unversioned" };`);
+    writeFileSync(
+      join(nearer, "package.json"),
+      JSON.stringify({ version: "0.0.1", main: "index.js" }),
+    );
+    writeFileSync(join(nearer, "index.js"), `module.exports = { copy: "stray" };`);
     try {
-      expect(loadBesideCli("onnxruntime-node", cliUrl)).toBeNull();
+      expect(loadBesideCli("onnxruntime-node", cliUrl)).toEqual({ copy: `beside ${pin}` });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -514,13 +519,14 @@ console.log(JSON.stringify([m.loadBesideCli("onnxruntime-node", url),
     }
   });
 
-  it("ignores a file require would load before the pinned folder", () => {
-    const { root, cliUrl } = layout(OPTIONAL_PACKAGES["onnxruntime-node"]);
+  it("finds the pinned folder past a file require would load first", () => {
+    const pin = OPTIONAL_PACKAGES["onnxruntime-node"];
+    const { root, cliUrl } = layout(pin);
     const nearer = join(root, "node_modules", "hyperframes", "node_modules");
     mkdirSync(nearer, { recursive: true });
     writeFileSync(join(nearer, "onnxruntime-node.js"), `module.exports = { copy: "file" };`);
     try {
-      expect(loadBesideCli("onnxruntime-node", cliUrl)).toBeNull();
+      expect(loadBesideCli("onnxruntime-node", cliUrl)).toEqual({ copy: `beside ${pin}` });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
