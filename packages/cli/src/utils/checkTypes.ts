@@ -313,6 +313,10 @@ export interface CheckTimings {
   launchSettleMs: number;
   seekLoopMs: number;
   contrastMs: number;
+  /** Where seekLoopMs went: the layout grid, the craft pass, and the overlap pass with its hold probes. */
+  gridMs: number;
+  craftMs: number;
+  overlapMs: number;
 }
 
 export interface CheckBrowserResult {
