@@ -1001,10 +1001,10 @@ export function createPageDriver(
 }
 
 async function collectCraftFrame(page: Page, time: number): Promise<CraftFrame> {
-  const raw = await page.evaluate(() => {
+  const raw = await page.evaluate((withCover: boolean) => {
     const sample = Reflect.get(window, "__hyperframesCraftSample");
-    return typeof sample === "function" ? Reflect.apply(sample, window, []) : null;
-  });
+    return typeof sample === "function" ? Reflect.apply(sample, window, [{ withCover }]) : null;
+  }, time <= 1e-3);
   const record = isRecord(raw) ? raw : {};
   const parts = Reflect.get(record, "parts");
   const coveredBy = stringValue(record, "coveredBy");

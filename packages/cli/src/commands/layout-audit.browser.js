@@ -1635,8 +1635,7 @@
     return occlusionCoverage(element, [rect]).coveredFraction >= COVERED_CONTENT_SHARE;
   }
 
-  function spansCanvas(element, root, rootRect) {
-    if (element === root || hasAllowOcclusionFlag(element)) return false;
+  function spansCanvas(element, rootRect) {
     const rect = toRect(element.getBoundingClientRect());
     return intersectionArea(rect, rootRect) >= rectArea(rootRect) * COVER_CANVAS_SHARE;
   }
@@ -1647,11 +1646,26 @@
     );
   }
 
+  // Only frame 0 asks: the craft sweep samples at 8 fps and the scan restores hit testing on every node.
+  function canvasCoverAt(root, rootRect) {
+    const restoreHits = restoreHitTesting(root);
+    try {
+      return canvasCoveredIssue(root, rootRect, visibleElementsIn(root), 0);
+    } finally {
+      restoreHits();
+    }
+  }
+
   function canvasCoveredIssue(root, rootRect, elements, time) {
     for (const cover of elements) {
-      if (!spansCanvas(cover, root, rootRect)) continue;
+      if (cover === root || hasAllowOcclusionFlag(cover) || !spansCanvas(cover, rootRect)) continue;
+      // A buried backdrop is not a lost clip: full-frame b-roll over a background is the film.
       const beneath = elements.filter(
-        (element) => element !== cover && !element.contains(cover) && paintsOwnContent(element),
+        (element) =>
+          element !== cover &&
+          !element.contains(cover) &&
+          paintsOwnContent(element) &&
+          !spansCanvas(element, rootRect),
       );
       if (
         beneath.length === 0 ||
@@ -2690,20 +2704,14 @@
     return false;
   }
 
-  window.__hyperframesCraftSample = function collectCraftSample() {
+  window.__hyperframesCraftSample = function collectCraftSample(options) {
     const root =
       document.querySelector("[data-composition-id][data-width][data-height]") ||
       document.querySelector("[data-composition-id]") ||
       document.body;
     const rootRect = rootRectFor(root);
     const parts = craftTextParts(root, rootRect);
-    const restoreHits = restoreHitTesting(root);
-    let cover;
-    try {
-      cover = canvasCoveredIssue(root, rootRect, visibleElementsIn(root), 0);
-    } finally {
-      restoreHits();
-    }
+    const cover = options && options.withCover ? canvasCoverAt(root, rootRect) : null;
     const holds = [root, ...Array.from(root.querySelectorAll("[data-hold]"))].filter((element) =>
       element.hasAttribute("data-hold"),
     );

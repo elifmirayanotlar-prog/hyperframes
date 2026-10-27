@@ -3663,6 +3663,24 @@ describe("layout-audit.browser canvas_covered", () => {
     expect(auditCoverScene("below").some((issue) => issue.code === "canvas_covered")).toBe(false);
   });
 
+  it("leaves full-frame b-roll over a backdrop alone", () => {
+    document.body.innerHTML = `
+      <div id="root" data-composition-id="main" data-width="1920" data-height="1080">
+        <div id="bg"></div>
+        <img id="broll" src="broll.jpg" alt="" />
+      </div>
+    `;
+    const full = rect({ left: 0, top: 0, width: 1920, height: 1080 });
+    installGeometry(
+      { root: full, bg: full, broll: full },
+      { bg: { backgroundColor: "rgb(16, 24, 48)" } },
+    );
+    (document as unknown as { elementsFromPoint: () => Element[] }).elementsFromPoint = () =>
+      ["broll", "bg", "root"].map((id) => document.getElementById(id) as Element);
+    installAuditScript();
+    expect(runAudit().some((issue) => issue.code === "canvas_covered")).toBe(false);
+  });
+
   it("leaves a full-frame background over an empty layout box alone", () => {
     expect(
       auditCoverScene("above", "", "empty").some((issue) => issue.code === "canvas_covered"),
