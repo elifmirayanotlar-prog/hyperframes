@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { safeFetch } from "./assetDownloader.js";
 import {
   fetchLocalPageUrl,
@@ -15,14 +15,18 @@ let base: string;
 let site: string;
 
 beforeAll(() => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), "hf-local-page-")));
+  base = realpathSync.native(mkdtempSync(join(tmpdir(), "hf-local-page-")));
   site = join(base, "site");
   mkdirSync(join(site, "pages"), { recursive: true });
   writeFileSync(join(site, "index.html"), "<h1>home</h1>");
   writeFileSync(join(site, "pages", "about page.html"), "<h1>about</h1>");
   writeFileSync(join(site, "logo.png"), "png-bytes");
   writeFileSync(join(base, "secret.txt"), "outside the root");
-  if (process.platform !== "win32") symlinkSync(join(base, "secret.txt"), join(site, "link.txt"));
+  writeFileSync(join(base, "outside.html"), "<h1>outside</h1>");
+  if (process.platform !== "win32") {
+    symlinkSync(join(base, "secret.txt"), join(site, "link.txt"));
+    symlinkSync(join(base, "outside.html"), join(site, "linked.html"));
+  }
 });
 
 afterAll(() => rmSync(base, { recursive: true, force: true }));
@@ -51,6 +55,15 @@ describe("resolveLocalCaptureTarget", () => {
     );
     expect(() => resolveLocalCaptureTarget("https://example.com/")).toThrow("Local file not found");
   });
+
+  it.skipIf(process.platform === "win32")(
+    "does not widen the default root to where a symlinked entry points",
+    () => {
+      expect(() => resolveLocalCaptureTarget(join(site, "linked.html"))).toThrow(
+        "outside the root",
+      );
+    },
+  );
 });
 
 describe("startLocalPageServer", () => {
@@ -96,6 +109,22 @@ describe("startLocalPageServer", () => {
     expect((await safeFetch(`${server.origin}/%2e%2e/secret.txt`))?.status).toBe(404);
     expect(fetchLocalPageUrl("http://127.0.0.1:1/logo.png")).toBeNull();
     expect(await safeFetch("http://127.0.0.1:1/logo.png")).toBeNull();
+  });
+
+  it("reads the active local origin from disk, so an environment proxy cannot intercept it", async () => {
+    const networkFetch = vi.fn(() => Promise.reject(new Error("network")));
+    vi.stubGlobal("fetch", networkFetch);
+    try {
+      const response = await safeFetch(`${server.origin}/pages/about%20page.html`);
+      expect(response?.headers.get("content-type")).toContain("text/html");
+      expect(await response?.text()).toBe("<h1>about</h1>");
+      const head = await safeFetch(`${server.origin}/logo.png`, { method: "HEAD" });
+      expect(head?.headers.get("content-type")).toBe("image/png");
+      expect(await head?.text()).toBe("");
+      expect(networkFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("stops answering for the origin once closed", async () => {

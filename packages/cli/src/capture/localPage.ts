@@ -3,6 +3,7 @@ import { realpath, stat } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { Readable } from "node:stream";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export interface LocalCaptureTarget {
@@ -48,7 +49,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
 };
 
-const activeOrigins = new Set<string>();
+const activeRoots = new Map<string, string>();
 
 function isInside(root: string, path: string): boolean {
   const rel = relative(root, path);
@@ -57,21 +58,27 @@ function isInside(root: string, path: string): boolean {
 
 /**
  * Resolves a local HTML file (path or `file://` URL) or a directory's `index.html` to a capture
- * target. The entry must lie inside `root` (default: its directory).
+ * target. The entry must lie inside `root` (default: the directory it was named in).
  */
 export function resolveLocalCaptureTarget(target: string, root?: string): LocalCaptureTarget {
-  const path = target.startsWith("file:") ? fileURLToPath(target) : target;
+  const path = resolve(target.startsWith("file:") ? fileURLToPath(target) : target);
   let entry: string;
+  let directory: string;
   try {
-    entry = realpathSync(resolve(path));
-    if (statSync(entry).isDirectory()) entry = realpathSync(join(entry, "index.html"));
+    // Native realpath, as fs/promises uses for served files, so both agree on case and short names.
+    entry = realpathSync.native(path);
+    directory = realpathSync.native(dirname(path));
+    if (statSync(entry).isDirectory()) {
+      directory = entry;
+      entry = realpathSync.native(join(entry, "index.html"));
+    }
   } catch {
     throw new Error(`Local file not found: ${target}`);
   }
   if (!statSync(entry).isFile()) throw new Error(`Local capture target is not a file: ${target}`);
   let rootPath: string;
   try {
-    rootPath = realpathSync(resolve(root ?? dirname(entry)));
+    rootPath = root === undefined ? directory : realpathSync.native(resolve(root));
   } catch {
     throw new Error(`Local capture root not found: ${root}`);
   }
@@ -104,6 +111,10 @@ async function servedFile(root: string, pathname: string): Promise<string | null
   }
 }
 
+function contentType(file: string): string {
+  return CONTENT_TYPES[extname(file).toLowerCase()] ?? "application/octet-stream";
+}
+
 function end(response: ServerResponse, status: number): void {
   response.writeHead(status, { "Content-Length": 0, Connection: "close" });
   response.end();
@@ -118,8 +129,7 @@ export async function startLocalPageServer(target: LocalCaptureTarget): Promise<
       const pathname = new URL(request.url ?? "/", "http://local").pathname;
       const file = await servedFile(target.root, pathname);
       if (!file) return end(response, 404);
-      const type = CONTENT_TYPES[extname(file).toLowerCase()] ?? "application/octet-stream";
-      response.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store" });
+      response.writeHead(200, { "Content-Type": contentType(file), "Cache-Control": "no-store" });
       if (request.method === "HEAD") return response.end();
       const stream = createReadStream(file);
       stream.on("error", () => response.destroy());
@@ -138,14 +148,14 @@ export async function startLocalPageServer(target: LocalCaptureTarget): Promise<
   if (!address || typeof address === "string") throw new Error("Local page server did not bind");
   const origin = `http://127.0.0.1:${address.port}`;
   const entryPath = relative(target.root, target.entry).split(sep).map(encodeURIComponent);
-  activeOrigins.add(origin);
+  activeRoots.set(origin, target.root);
   let closing: Promise<void> | undefined;
   return {
     origin,
     url: `${origin}/${entryPath.join("/")}`,
     close() {
       closing ??= new Promise<void>((resolveClose) => {
-        activeOrigins.delete(origin);
+        activeRoots.delete(origin);
         server.close(() => resolveClose());
         for (const socket of sockets) socket.destroy();
       });
@@ -154,14 +164,29 @@ export async function startLocalPageServer(target: LocalCaptureTarget): Promise<
   };
 }
 
-/** Fetches a URL on an active local page server directly; null for every other URL. */
+async function localResponse(root: string, pathname: string, method: string): Promise<Response> {
+  if (method !== "GET" && method !== "HEAD") return new Response(null, { status: 405 });
+  const file = await servedFile(root, pathname);
+  if (!file) return new Response(null, { status: 404 });
+  const body =
+    method === "HEAD"
+      ? null
+      : (Readable.toWeb(createReadStream(file)) as ReadableStream<Uint8Array>);
+  return new Response(body, { status: 200, headers: { "Content-Type": contentType(file) } });
+}
+
+/**
+ * Answers a URL on an active local page server from disk, with the server's checks; null for every
+ * other URL. It never touches the network, so an environment proxy cannot intercept it.
+ */
 export function fetchLocalPageUrl(url: string, init?: RequestInit): Promise<Response> | null {
-  let origin: string;
+  let parsed: URL;
   try {
-    origin = new URL(url).origin;
+    parsed = new URL(url);
   } catch {
     return null;
   }
-  if (!activeOrigins.has(origin)) return null;
-  return fetch(url, { ...init, redirect: "manual" });
+  const root = activeRoots.get(parsed.origin);
+  if (root === undefined) return null;
+  return localResponse(root, parsed.pathname, (init?.method ?? "GET").toUpperCase());
 }
