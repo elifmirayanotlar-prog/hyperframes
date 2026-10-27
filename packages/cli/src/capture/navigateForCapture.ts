@@ -126,6 +126,27 @@ export async function waitForPageReady(
   if (waitedOutLoad && remaining() > 0) await idle();
 }
 
+export function isNavigationRaceError(error: unknown): boolean {
+  return error instanceof Error && /Execution context was destroyed/i.test(error.message);
+}
+
+/** A read that lands on a navigation (a redirect, a late reload) waits for the new document, then runs once more. */
+export function settleAcrossNavigation(page: Page): void {
+  const read = page.evaluate.bind(page);
+  page.evaluate = (async (...args: Parameters<Page["evaluate"]>) => {
+    try {
+      return await read(...args);
+    } catch (error) {
+      if (!isNavigationRaceError(error)) throw error;
+      await waitForPageReady({
+        evaluate: (fn) => read(fn),
+        waitForNetworkIdle: (o) => page.waitForNetworkIdle(o),
+      });
+      return read(...args);
+    }
+  }) as Page["evaluate"];
+}
+
 const PUPPETEER_LAUNCH_DEFAULT_TIMEOUT_MS = 30_000;
 const PAGE_LOAD_BLOCKING_TYPES = new Set(["Document", "Script", "Stylesheet"]);
 const NAMED_BLOCKING_REQUESTS = 3;
