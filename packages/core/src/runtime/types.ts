@@ -1,5 +1,8 @@
 import type { HfColorGradingTarget } from "../colorGrading";
 import type { RuntimeAnalyticsEvent } from "./analytics";
+import type { AudioFades } from "../audioFade";
+import type { RateSpec } from "../speedRamp";
+import type { VolumeKeyframe } from "./mediaVolumeEnvelope";
 
 export type RuntimeJson =
   | string
@@ -456,3 +459,29 @@ type RuntimeBridgeControlAction =
 
 export type RuntimeBridgeControlMessage = RuntimeBridgeControlMessageBase &
   RuntimeDataControlFields;
+
+export type RuntimeMediaClip = {
+  el: HTMLVideoElement | HTMLAudioElement;
+  start: number;
+  /** The clip's own t=0 when a host's in-point cut its head; source time, lanes and fades run from it. */
+  origin?: number;
+  mediaStart: number;
+  duration: number;
+  end: number;
+  volume: number | null;
+  playbackRate: number;
+  /** The rate lane when the clip has one; otherwise `playbackRate`. */
+  rate?: RateSpec;
+  loop: boolean;
+  /** Source media duration in seconds (from el.duration). Used for loop wrapping. */
+  sourceDuration: number | null;
+  /**
+   * Probed volume keyframes from the GSAP timeline (same probe the renderer
+   * uses). When present, `syncRuntimeMedia` drives volume from the envelope
+   * rather than from `data-volume` + GSAP-change tracking, eliminating the
+   * race between the 60 Hz transport tick and GSAP's own seek.
+   */
+  volumeKeyframes?: VolumeKeyframe[];
+  /** Clip-edge fades from `data-fade-in` / `data-fade-out`; see audioFade.ts. */
+  fades?: AudioFades;
+};
