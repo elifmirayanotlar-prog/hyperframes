@@ -1,9 +1,7 @@
-import { configDefaults, defineConfig } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
 // Tests that drive a real Chrome run alone, after everything else: a Chrome sharing the
 // runner with the ffmpeg tests got starved past vitest's hook limit on 4-core Windows.
-const BROWSER_TESTS = "src/**/*.browser.test.ts";
-
 export default defineConfig({
   test: {
     projects: [
@@ -12,7 +10,7 @@ export default defineConfig({
         test: {
           name: "unit",
           include: ["src/**/*.test.ts"],
-          exclude: [...configDefaults.exclude, BROWSER_TESTS],
+          exclude: ["**/node_modules/**", "**/dist/**", "src/**/*.browser.test.ts"],
           sequence: { groupOrder: 1 },
         },
       },
@@ -20,7 +18,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: "browser",
-          include: [BROWSER_TESTS],
+          include: ["src/**/*.browser.test.ts"],
           fileParallelism: false,
           sequence: { groupOrder: 2 },
         },
