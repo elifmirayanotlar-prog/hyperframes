@@ -718,7 +718,8 @@ export function syncRuntimeMedia(params: {
         // the element waiting for a callback that never came.
         markPlayRequested(el);
         // Read after any seek above: the offset before it says nothing about this start.
-        if (el.tagName === "VIDEO")
+        // A loop can wrap before the sample, which would be off by a lap.
+        if (el.tagName === "VIDEO" && !clip.loop)
           noteVideoStart(
             el,
             clip.start,

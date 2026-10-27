@@ -2122,6 +2122,28 @@ describe("syncRuntimeMedia", () => {
         tick(due58ms, 19.942);
         expect(due58ms.el.play).toHaveBeenCalledTimes(1);
       });
+
+      it("does not learn from a looping video sampled across a lap wrap", () => {
+        startWithLag(videoClip({ start: 0, end: 10, mediaStart: 0 }), 0, 0.3, 0.06);
+        const loop = videoClip({
+          start: 10,
+          end: 20,
+          mediaStart: 0,
+          loop: true,
+          sourceDuration: 0.2,
+        });
+        tick(loop, 10);
+        Object.defineProperty(loop.el, "paused", {
+          value: false,
+          writable: true,
+          configurable: true,
+        });
+        loop.el.currentTime = 0.19; // the playhead has wrapped to 0.06, the element not yet
+        tick(loop, 10.26);
+        const due50ms = videoClip({ start: 30, end: 40, mediaStart: 0 });
+        tick(due50ms, 29.95);
+        expect(due50ms.el.play).toHaveBeenCalledTimes(1);
+      });
     });
   });
 
