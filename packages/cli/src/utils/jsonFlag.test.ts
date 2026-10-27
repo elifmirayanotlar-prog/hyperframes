@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readJsonFlag } from "./jsonFlag.js";
 
@@ -26,5 +29,19 @@ describe("readJsonFlag", () => {
     expect(() => readJsonFlag("--grading", "missing.json", io)).toThrow(
       /Could not read --grading: missing\.json: ENOENT/,
     );
+  });
+});
+
+describe("readJsonFlag file encodings", () => {
+  it("reads a UTF-8 file with a BOM and a UTF-16LE file, as PowerShell writes them", () => {
+    const dir = mkdtempSync(join(tmpdir(), "hf-json-flag-enc-"));
+    try {
+      writeFileSync(join(dir, "bom.json"), Buffer.from('\uFEFF{"a":1}', "utf8"));
+      writeFileSync(join(dir, "u16.json"), Buffer.from('\uFEFF{"a":2}', "utf16le"));
+      expect(readJsonFlag("--grading", join(dir, "bom.json"))).toEqual({ a: 1 });
+      expect(readJsonFlag("--grading", join(dir, "u16.json"))).toEqual({ a: 2 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
