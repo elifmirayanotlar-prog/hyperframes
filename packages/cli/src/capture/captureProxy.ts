@@ -1,7 +1,17 @@
 import { createServer, request, type IncomingMessage, type ServerResponse } from "node:http";
 import { connect, type Socket } from "node:net";
 import type { Duplex } from "node:stream";
+import { egressProxy, openTunnel, proxyAuthorization } from "./egressProxy.js";
 import { resolvePublicAddress } from "./publicNetwork.js";
+
+/** The address a --file page is loaded from; it never resolves, so only the proxy can answer it. */
+export const LOCAL_DOCUMENT_URL = "http://hyperframes-local-file.invalid/";
+
+/** A page the proxy answers itself, so a local file loads without opening any other door. */
+export interface LocalDocument {
+  url: string;
+  html: string;
+}
 
 const CONNECTION_TIMEOUT_MS = 15_000;
 const HOP_HEADERS = new Set([
@@ -47,21 +57,28 @@ async function forwardHttp(
   incoming: IncomingMessage,
   response: ServerResponse,
   sockets: Set<Socket>,
+  document?: LocalDocument,
 ): Promise<void> {
   try {
     const url = destination(incoming.url ?? "", false);
+    if (document && url.href === document.url && incoming.method === "GET") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8", connection: "close" });
+      response.end(document.html);
+      return;
+    }
     const address = await resolvePublicAddress(url.hostname);
     if (incoming.destroyed || response.destroyed) return;
     const headers = forwardHeaders(incoming);
     headers.host = url.host;
+    const proxy = egressProxy("http:");
     const upstream = request(
       {
-        hostname: address,
-        family: 4,
-        port: url.port || 80,
+        hostname: proxy ? proxy.hostname : address,
+        family: proxy ? undefined : 4,
+        port: proxy ? proxy.port || 80 : url.port || 80,
         method: incoming.method,
-        path: url.pathname + url.search,
-        headers,
+        path: proxy ? url.href : url.pathname + url.search,
+        headers: proxy ? { ...headers, ...proxyAuthorization(proxy) } : headers,
         agent: false,
         signal: AbortSignal.timeout(30_000),
       },
@@ -104,20 +121,25 @@ async function forwardTunnel(
     const url = destination(incoming.url ?? "", true);
     const address = await resolvePublicAddress(url.hostname);
     if (client.destroyed) return;
-    const upstream = connect({ host: address, family: 4, port: Number(url.port || 443) });
-    trackSocket(upstream, sockets);
+    const proxy = egressProxy("https:");
+    const upstream = proxy
+      ? await openTunnel(proxy, url.hostname, Number(url.port || 443))
+      : connect({ host: address, family: 4, port: Number(url.port || 443) });
+    trackSocket(upstream as Socket, sockets);
     const connectDeadline = setTimeout(() => upstream.destroy(), CONNECTION_TIMEOUT_MS);
     connectDeadline.unref();
     upstream.once("close", () => clearTimeout(connectDeadline));
-    upstream.setTimeout(CONNECTION_TIMEOUT_MS, () => upstream.destroy());
-    upstream.once("connect", () => {
+    (upstream as Socket).setTimeout(CONNECTION_TIMEOUT_MS, () => upstream.destroy());
+    const ready = () => {
       clearTimeout(connectDeadline);
       if (client.destroyed) return upstream.destroy();
       client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       if (head.length) upstream.write(head);
       upstream.pipe(client);
       client.pipe(upstream);
-    });
+    };
+    if (proxy) ready();
+    else upstream.once("connect", ready);
     upstream.once("close", () => client.destroy());
     client.once("close", () => upstream.destroy());
   } catch {
@@ -126,10 +148,12 @@ async function forwardTunnel(
 }
 
 /** Every browser target uses this proxy; only a checked numeric IPv4 address is dialed. */
-export async function startCaptureProxy(): Promise<{ url: string; close(): Promise<void> }> {
+export async function startCaptureProxy(
+  document?: LocalDocument,
+): Promise<{ url: string; close(): Promise<void> }> {
   const sockets = new Set<Socket>();
   const server = createServer(
-    (incoming, response) => void forwardHttp(incoming, response, sockets),
+    (incoming, response) => void forwardHttp(incoming, response, sockets, document),
   );
   server.on("connection", (socket) => trackSocket(socket, sockets));
   server.on(

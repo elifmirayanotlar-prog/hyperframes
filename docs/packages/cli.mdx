@@ -202,6 +202,7 @@ Pull a real website into a working folder an agent can build from.
 npx hyperframes capture https://stripe.com
 npx hyperframes capture https://linear.app -o linear-capture
 npx hyperframes capture https://example.com --json
+npx hyperframes capture --file ./page.html
 ```
 
 ```
@@ -265,6 +266,7 @@ thin with counts on it was cut short.
 
 | Flag                | Description                                                                                                                                       |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--file <page.html>` | Capture a local HTML file instead of a URL. Only the file itself is local; whatever it loads goes through the same address check, or the egress proxy when it is on. Relative references and `file://` are refused. |
 | `--output, -o`      | Output directory. Default `./capture`, then `./capture-2/`, `./capture-3/`, … if that name is taken.                                               |
 | `--timeout`         | Page load timeout in ms (default 120000)                                                                                                          |
 | `--capture-budget`  | Budget in ms for everything after the page loads (default 120000). Cooperative — it stops new work, but cannot interrupt work already running.     |
@@ -273,6 +275,8 @@ thin with counts on it was cut short.
 | `--max-screenshots` | Maximum page-capture files, including the full-page plate; derived contact sheets are excluded. Positive integer; default 21. A value of 1 captures only the top viewport.                                                                              |
 | `--json`            | Structured output for programmatic use                                                                                                             |
 | `--video <folder>`  | Switch to video-download mode against a captured folder's manifest. Pair with `--list`, `--index`, or `--video-url`.                               |
+
+**Behind an egress proxy.** With `NODE_USE_ENV_PROXY=1` and `HTTP_PROXY` / `HTTPS_PROXY` set to an `http://` address, every download capture makes (the browser's page and subresources, and the CLI's own asset and video fetches) goes through that proxy. Without `NODE_USE_ENV_PROXY=1` nothing changes. The CLI still checks each address first, so a name that only the proxy can resolve is refused before the proxy sees it.
 
 You get `AGENTS.md`, `CLAUDE.md`, `meta.json`, scroll screenshots, extracted
 HTML and CSS, visible text, design tokens, font files, images, SVGs, animation

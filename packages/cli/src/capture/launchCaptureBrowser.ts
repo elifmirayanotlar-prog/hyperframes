@@ -8,7 +8,7 @@ import {
   registerBrowserSessionCleanup,
 } from "../browser/launch.js";
 import { captureBrowserArgs } from "./browserLaunchArgs.js";
-import { startCaptureProxy } from "./captureProxy.js";
+import { startCaptureProxy, type LocalDocument } from "./captureProxy.js";
 
 /** The launch-wide proxy covers pages, popups, workers and both extraction passes. */
 export async function launchCaptureBrowser(options: {
@@ -17,8 +17,9 @@ export async function launchCaptureBrowser(options: {
   disableWebgl: boolean;
   width: number;
   height: number;
+  localDocument?: LocalDocument;
 }): Promise<{ browser: Browser; close(): Promise<void> }> {
-  const proxy = await startCaptureProxy();
+  const proxy = await startCaptureProxy(options.localDocument);
   let profile: string | undefined;
   let browser: Browser | undefined;
   let closing: Promise<void> | undefined;

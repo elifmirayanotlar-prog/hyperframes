@@ -54,6 +54,7 @@ export async function captureWebsiteAttempt(
     skipVision = false,
     postNavigationBudgetMs = DEFAULT_POST_NAVIGATION_BUDGET_MS,
     onPhase,
+    localHtml,
   } = opts;
 
   const initialUrl = new URL(url);
@@ -125,6 +126,7 @@ export async function captureWebsiteAttempt(
     disableWebgl,
     width: viewportWidth,
     height: viewportHeight,
+    localDocument: localHtml === undefined ? undefined : { url, html: localHtml },
   });
   const chromeBrowser = captureBrowser.browser;
   watchdog.registerBrowser(captureBrowser);

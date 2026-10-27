@@ -7,6 +7,8 @@ import { normalizeErrorMessage } from "../utils/errorMessage.js";
 import { diag } from "../ui/diagnostics.js";
 import type { CapturePhaseProgress } from "../capture/types.js";
 import { parseCaptureDeadline } from "../capture/captureWatchdog.js";
+import { LOCAL_DOCUMENT_URL } from "../capture/captureProxy.js";
+import { readLocalHtml } from "../capture/localHtml.js";
 
 const CAPTURE_PHASE_PREFIX = "HYPERFRAMES_CAPTURE_PHASE ";
 
@@ -32,6 +34,7 @@ export const examples: Example[] = [
   ["Capture a website into ./capture/", "hyperframes capture https://stripe.com"],
   ["Capture to a different directory", "hyperframes capture https://linear.app -o linear-video"],
   ["JSON output for AI agents", "hyperframes capture https://example.com --json"],
+  ["Capture a local HTML file", "hyperframes capture --file ./page.html"],
   [
     "Pull a video from the captured manifest by index",
     "hyperframes capture --video ./linear-video --index 0",
@@ -52,6 +55,11 @@ export default defineCommand({
       type: "positional",
       description: "Website URL to capture (omit when using --video)",
       required: false,
+    },
+    file: {
+      type: "string",
+      description:
+        "Capture a local HTML file instead of a URL. Only the file itself is local; whatever it loads goes through the same address check, or the egress proxy when NODE_USE_ENV_PROXY=1",
     },
     output: {
       type: "string",
@@ -118,10 +126,22 @@ export default defineCommand({
       return;
     }
 
-    const url = args.url as string | undefined;
+    const file = args.file as string | undefined;
+    if (file && args.url) {
+      console.error("Pass a URL or --file, not both.");
+      failCommand();
+    }
+    let localHtml: string | undefined;
+    try {
+      localHtml = file ? readLocalHtml(file) : undefined;
+    } catch (error) {
+      console.error(normalizeErrorMessage(error));
+      failCommand();
+    }
+    const url = file ? LOCAL_DOCUMENT_URL : (args.url as string | undefined);
     if (!url) {
       console.error(
-        "Missing URL. Pass a website URL, or use --video <project> for video download.",
+        "Missing URL. Pass a website URL, --file <page.html>, or use --video <project> for video download.",
       );
       failCommand();
     }
@@ -169,7 +189,7 @@ export default defineCommand({
     if (!isJson) {
       const { c } = await import("../ui/colors.js");
       console.log();
-      console.log(c.dim("◆") + "  Capturing " + c.bold(url));
+      console.log(c.dim("◆") + "  Capturing " + c.bold(file ?? url));
       if (isDefaultOutput && outputName !== "capture") {
         console.log(`  ${c.dim(`(./capture/ exists; writing to ./${outputName}/)`)}`);
       }
@@ -183,6 +203,7 @@ export default defineCommand({
       const result = await captureWebsite(
         {
           url,
+          localHtml,
           outputDir,
           skipAssets: args["skip-assets"] as boolean,
           skipVision: args["skip-vision"] as boolean,

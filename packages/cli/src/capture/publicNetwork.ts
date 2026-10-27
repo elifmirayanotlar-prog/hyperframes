@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { request as httpRequest, type IncomingMessage, type ClientRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { connect as tlsConnect } from "node:tls";
+import { egressProxy, openTunnel, proxyAuthorization } from "./egressProxy.js";
 
 const DNS_TIMEOUT_MS = 10_000;
 const CARES_TIMEOUT_MS = 5_000;
@@ -194,19 +196,16 @@ export async function publicRequest(url: string | URL, init: RequestInit = {}): 
     headers.delete(name);
   headers.set("host", target.host);
   headers.set("accept-encoding", "identity");
+  // The CLI's own address check above has already passed; the proxy then carries the request.
+  const proxy = egressProxy(target.protocol as "http:" | "https:");
+  const route = await routeThrough(proxy, target, address, headers, signal);
   return new Promise<Response>((resolve, reject) => {
     const request = target.protocol === "https:" ? httpsRequest : httpRequest;
     const req = request(
       {
-        protocol: target.protocol,
-        hostname: address,
-        port: target.port || undefined,
-        path: `${target.pathname}${target.search}`,
+        ...route,
         method,
-        headers: Object.fromEntries(headers),
         agent: false,
-        servername: target.hostname,
-        rejectUnauthorized: true,
         signal,
       },
       (incoming) => {
@@ -221,6 +220,52 @@ export async function publicRequest(url: string | URL, init: RequestInit = {}): 
     req.once("error", reject);
     req.end();
   });
+}
+
+/** Where and how to connect: the checked numeric peer directly, or the egress proxy when it is on. */
+async function routeThrough(
+  proxy: URL | null,
+  target: URL,
+  address: string,
+  headers: Headers,
+  signal: AbortSignal,
+) {
+  const base = { headers: Object.fromEntries(headers), rejectUnauthorized: true };
+  if (!proxy) {
+    return {
+      ...base,
+      protocol: target.protocol,
+      hostname: address,
+      port: target.port || undefined,
+      path: `${target.pathname}${target.search}`,
+      servername: target.hostname,
+    };
+  }
+  const proxyHeaders = { ...base.headers, ...proxyAuthorization(proxy) };
+  if (target.protocol === "http:") {
+    return {
+      ...base,
+      headers: proxyHeaders,
+      protocol: "http:",
+      hostname: proxy.hostname,
+      port: proxy.port || 80,
+      path: target.href,
+    };
+  }
+  const tunnel = await openTunnel(proxy, target.hostname, Number(target.port || 443), signal);
+  const secure = tlsConnect({
+    socket: tunnel,
+    servername: target.hostname,
+    rejectUnauthorized: true,
+  });
+  return {
+    ...base,
+    protocol: "https:",
+    hostname: target.hostname,
+    port: target.port || undefined,
+    path: `${target.pathname}${target.search}`,
+    createConnection: () => secure,
+  };
 }
 
 function responseHeaders(incoming: IncomingMessage): Headers {

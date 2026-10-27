@@ -44,6 +44,8 @@ export interface CapturePhaseProgress {
 export interface CaptureOptions {
   /** URL to capture */
   url: string;
+  /** The HTML of a local file captured at `url`; the browser proxy serves it and nothing else local. */
+  localHtml?: string;
   /** Output directory */
   outputDir: string;
   /** Viewport width (default: 1920) */
