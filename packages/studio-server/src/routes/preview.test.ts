@@ -167,15 +167,14 @@ describe("registerPreviewRoutes", () => {
     );
     const app = new Hono();
     registerPreviewRoutes(app, createAdapter(projectDir));
-    const base = "/api/projects/demo/preview/";
     const page = await (await app.request("http://localhost/projects/demo/preview")).text();
-    expect(page).toContain(`src="${base}assets/vo-1.mp3"`);
-    expect(page).toContain(`url(${base}bg.png)`);
+    expect(page).toContain('src="assets/vo-1.mp3"');
+    expect(page).toContain("url(bg.png)");
     expect(page).toContain('src="/api/runtime.js"');
     const scene = await (
       await app.request("http://localhost/projects/demo/preview/comp/compositions/scene.html")
     ).text();
-    expect(scene).toContain(`src="${base}assets/still.png"`);
+    expect(scene).toContain('src="assets/still.png"');
     expect(scene).toContain('src="/api/runtime.js"');
   });
 

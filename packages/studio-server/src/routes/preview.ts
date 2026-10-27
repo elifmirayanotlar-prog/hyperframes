@@ -44,7 +44,7 @@ import {
 import { getMimeType } from "../helpers/mime.js";
 import { buildSubCompositionHtml, hasBaseElement } from "../helpers/subComposition.js";
 import { withRootImportMap } from "../helpers/rootImportMap.js";
-import { withRootPathsUnderBase } from "../helpers/rootPaths.js";
+import { withRootPathsRelative } from "../helpers/rootPaths.js";
 import {
   htmlHasGsapCore,
   insertGsapCoreBeforeHeadPlugin,
@@ -444,7 +444,7 @@ const previewBaseHref = (projectId: string) =>
 
 const withPreviewBase = (html: string, projectId: string) => {
   const base = previewBaseHref(projectId);
-  const mapped = withRootImportMap(withRootPathsUnderBase(html, base), base);
+  const mapped = withRootImportMap(withRootPathsRelative(html, base), base);
   return hasBaseElement(mapped) ? mapped : injectTagsAtHeadStart(mapped, `<base href="${base}">`);
 };
 
@@ -661,7 +661,7 @@ export function registerPreviewRoutes(api: Hono, adapter: PreviewApiAdapter): vo
       compPath,
       adapter.runtimeUrl,
       baseHref,
-      stamped && withRootPathsUnderBase(stamped, baseHref),
+      stamped,
       gsapBaseUrl,
     );
     if (!html) return c.text("not found", 404);
