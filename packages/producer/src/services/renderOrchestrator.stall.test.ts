@@ -19,6 +19,16 @@ const capture = vi.hoisted(() => ({
   blocked: 0,
 }));
 
+// The 250 ms memory sampler is a faked interval: left running it is the next timer on every jump.
+vi.mock("./render/shared.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./render/shared.js")>()),
+  createMemorySampler: () => ({
+    peakRssBytes: () => 0,
+    peakHeapUsedBytes: () => 0,
+    stop: () => {},
+  }),
+}));
+
 type ScriptedFrame = { dir: string; index: number };
 
 function listFrames(tasks: WorkerTask[]): ScriptedFrame[] {
