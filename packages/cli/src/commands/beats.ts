@@ -103,9 +103,12 @@ export default defineCommand({
   },
   async run({ args }) {
     if (args.dir && existsSync(resolve(args.dir)) && statSync(resolve(args.dir)).isFile()) {
+      const file = JSON.stringify(args.dir);
       fail(
-        `${args.dir} is a file; beats takes a project folder. ` +
-          `For one audio or video file run: hyperframes audio ${args.dir} --only beats --json`,
+        /\.html?$/i.test(args.dir)
+          ? `${args.dir} is a file; beats takes the project folder: hyperframes beats ${JSON.stringify(dirname(args.dir))}`
+          : `${args.dir} is a file; beats takes a project folder. ` +
+              `For one audio or video file run: hyperframes audio ${file} --only beats --json`,
       );
     }
     const project = resolveProject(args.dir);
