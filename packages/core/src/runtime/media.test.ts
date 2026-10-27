@@ -2123,6 +2123,13 @@ describe("syncRuntimeMedia", () => {
         expect(due58ms.el.play).toHaveBeenCalledTimes(1);
       });
 
+      it("caps the learned start delay at 100 ms", () => {
+        startWithLag(videoClip({ start: 0, end: 10, mediaStart: 0 }), 0, 0.3, 0.3);
+        const due150ms = videoClip({ start: 10, end: 20, mediaStart: 0 });
+        tick(due150ms, 9.85);
+        expect(due150ms.el.play).not.toHaveBeenCalled();
+      });
+
       it("does not learn from a looping video sampled across a lap wrap", () => {
         startWithLag(videoClip({ start: 0, end: 10, mediaStart: 0 }), 0, 0.3, 0.06);
         const loop = videoClip({

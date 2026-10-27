@@ -303,49 +303,24 @@ const MIN_NATIVE_PLAYBACK_RATE = 1 / 16;
 const VIDEO_LEAD_HOLD_SECONDS = 0.1;
 const heldAhead = new WeakSet<HTMLMediaElement>();
 
-// A video's clock starts tens of ms after play() (its muted audio track is the clock), so an upcoming
-// video is started that much before its cut, hidden on its first frame. Learned from earlier starts.
-const MAX_VIDEO_START_LATENCY_SECONDS = 0.1;
-const VIDEO_START_SAMPLE_SECONDS = 0.25;
-let videoStartLatencySeconds: number | null = null;
-const videoStarts = new WeakMap<
-  HTMLMediaElement,
-  { offset: number; leadSeconds: number; sampleAt: number }
->();
+// A muted video's clock is its audio track, which starts tens of ms after play(), so an upcoming
+// video starts that early, hidden, by the delay learned from earlier starts.
+let videoStartLatency: number | null = null;
+const videoStarts = new WeakMap<HTMLMediaElement, { offset: number; lead: number; at: number }>();
 
-/** Test-only seam: forget the learned video start latency. */
+/** Test-only seam. */
 export function resetVideoStartLatency(): void {
-  videoStartLatencySeconds = null;
+  videoStartLatency = null;
 }
 
-function noteVideoStart(
-  el: HTMLMediaElement,
-  clipStart: number,
-  time: number,
-  offset: number,
-  rate: number,
-) {
-  videoStarts.set(el, {
-    offset,
-    leadSeconds: Math.max(0, clipStart - time) / rate,
-    sampleAt: Math.max(time, clipStart) + VIDEO_START_SAMPLE_SECONDS * rate,
-  });
-}
-
-/** Once a started video has run a while, its lag plus how early it started is the latency. */
-function learnVideoStartLatency(
-  el: HTMLMediaElement,
-  time: number,
-  offset: number,
-  baseRate: number,
-) {
+/** A quarter second in: its lag plus how early it started, capped at 0.1 s. */
+function learnVideoStartLatency(el: HTMLMediaElement, time: number, offset: number, rate: number) {
   const start = videoStarts.get(el);
-  if (!start || time < start.sampleAt) return;
+  if (!start || time < start.at) return;
   videoStarts.delete(el);
-  const sample = (offset - start.offset) / baseRate + start.leadSeconds;
-  const averaged =
-    videoStartLatencySeconds === null ? sample : (videoStartLatencySeconds + sample) / 2;
-  videoStartLatencySeconds = Math.min(MAX_VIDEO_START_LATENCY_SECONDS, Math.max(0, averaged));
+  const sample = (offset - start.offset) / rate + start.lead;
+  const averaged = videoStartLatency === null ? sample : (videoStartLatency + sample) / 2;
+  videoStartLatency = Math.min(0.1, Math.max(0, averaged));
 }
 
 // fallow-ignore-next-line complexity
@@ -413,9 +388,9 @@ export function syncRuntimeMedia(params: {
     const cueAhead =
       el.tagName === "AUDIO"
         ? (params.cueAheadSeconds ?? 0)
-        : params.playing && videoStartLatencySeconds !== null
-          ? // Started on the tick nearest its lead: ticks are coarser than the lead.
-            videoStartLatencySeconds * params.playbackRate + (params.cueAheadSeconds ?? 0) / 2
+        : params.playing && videoStartLatency !== null
+          ? // Half a tick: it starts on the tick nearest its lead.
+            videoStartLatency * params.playbackRate + (params.cueAheadSeconds ?? 0) / 2
           : 0;
     const startsEarly =
       !inWindow &&
@@ -717,16 +692,13 @@ export function syncRuntimeMedia(params: {
         // fire between `load()` and `addEventListener` attachment, wedging
         // the element waiting for a callback that never came.
         markPlayRequested(el);
-        // Read after any seek above: the offset before it says nothing about this start.
-        // A loop can wrap before the sample, which would be off by a lap.
-        if (el.tagName === "VIDEO" && !clip.loop)
-          noteVideoStart(
-            el,
-            clip.start,
-            params.timeSeconds,
-            relTime - (el.currentTime || 0),
-            params.playbackRate,
-          );
+        // Offset read after any seek above; a loop could wrap a lap before the sample.
+        if (isNonLoopVideo)
+          videoStarts.set(el, {
+            offset: relTime - (el.currentTime || 0),
+            lead: Math.max(0, clip.start - params.timeSeconds) / params.playbackRate,
+            at: Math.max(params.timeSeconds, clip.start) + 0.25 * params.playbackRate,
+          });
         void el.play().catch((err: unknown) => {
           // If play() rejects — e.g. autoplay blocked, element removed
           // mid-flight — drop the in-flight flag so a future sync tick can
