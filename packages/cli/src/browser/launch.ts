@@ -187,7 +187,11 @@ async function launchOwnedBrowser(
     browsers.add(browser);
     const watchdog = watchChromeTree(child, launchedAt);
     if (watchdog) watchdogs.set(browser, watchdog);
-    child.once("exit", () => browsers.delete(browser));
+    child.once("exit", () => {
+      browsers.delete(browser);
+      // An orphaned helper can keep the CDP pipe's far end open, so the sockets never see EOF and hold the CLI alive.
+      for (const pipe of child.stdio.slice(3)) pipe?.destroy();
+    });
     return browser;
   } finally {
     clearTimeout(timer);
