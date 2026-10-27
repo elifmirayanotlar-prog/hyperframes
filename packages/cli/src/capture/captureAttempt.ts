@@ -17,7 +17,6 @@ import type { DiscoveredLottie } from "./mediaCapture.js";
 import { detectLibraries } from "./contentExtractor.js";
 import { loadEnvFile, generateProjectScaffold } from "./scaffolding.js";
 import { captureProtocolTimeoutMs } from "./captureTimeout.js";
-import { settleAcrossNavigation } from "./navigateForCapture.js";
 import { CAPTURE_PHASE_SCHEMA, DEFAULT_MAX_SCREENSHOTS } from "./types.js";
 import type {
   CaptureOptions,
@@ -166,7 +165,6 @@ export async function captureWebsiteAttempt(
     progress("animations", "Cataloging animations (full JS)...");
 
     const page1 = await chromeBrowser.newPage();
-    settleAcrossNavigation(page1);
     await page1.setViewport({ width: viewportWidth, height: viewportHeight });
     await page1.setUserAgent(CAPTURE_USER_AGENT);
 
