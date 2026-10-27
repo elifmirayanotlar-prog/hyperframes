@@ -42,6 +42,7 @@ const audioChannels = (path: string) =>
       "stream=channels",
       "-of",
       "csv=p=0",
+      "--",
       path,
     ],
     { encoding: "utf8" },
