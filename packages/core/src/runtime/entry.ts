@@ -19,7 +19,6 @@ import { hasFrameSources, registerFrameSource } from "./frameSources";
 import { createFilmBridge } from "./filmBridge";
 import { trackAcceleratedCanvases } from "./captureMotionBlur";
 import { parkFarScenesAtBoot } from "./sceneWindow";
-import { applyTextBindings } from "./applyVariableBindings";
 
 type HyperframeWindow = Window & {
   __hyperframeRuntimeBootstrapped?: boolean;
@@ -82,7 +81,6 @@ function startAfterCompositionScripts(): void {
   try {
     parkFarScenesAtBoot();
     refreshSvgSelectorAliases();
-    applyTextBindings(document);
     const deferred = Array.from(document.querySelectorAll(AFTER_FONTS_SCRIPTS));
     if (deferred.length === 0) bootstrapHyperframeRuntime();
     else {

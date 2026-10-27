@@ -756,3 +756,16 @@ export function buildVariablesByCompScript(
   const json = jsonScriptLiteral(variablesByComp);
   return `window.__hfVariablesByComp = Object.assign({}, window.__hfVariablesByComp || {}, ${json});`;
 }
+
+/** Writes the table in <head>, which runs while the page parses: body scripts wait for fonts, and the runtime binds
+ * each instance's variable text before they run. */
+export function emitVariablesByCompScript(
+  document: Document,
+  variablesByComp: Record<string, Record<string, unknown>>,
+): void {
+  const text = buildVariablesByCompScript(variablesByComp);
+  if (!text || !document.head) return;
+  const script = document.createElement("script");
+  script.textContent = text;
+  document.head.appendChild(script);
+}
