@@ -130,10 +130,12 @@ async function withStartupDiagnosis(
   if (!diagnose || !options.executablePath || options.signal?.aborted || shutdown) return error;
   if (!(error instanceof Error)) return error;
   if (sandboxDeniedRemediation(normalizeErrorMessage(error))) return error;
-  const args = await puppeteer.defaultArgs({
-    headless: options.headless ?? true,
-    args: withHyperframesBrowserMarker(options.args),
-  });
+  const args = await (async () =>
+    puppeteer.defaultArgs({
+      headless: options.headless ?? true,
+      args: withHyperframesBrowserMarker(options.args),
+    }))().catch(() => undefined);
+  if (!args) return error;
   const abort = new AbortController();
   diagnosing.add(abort);
   try {

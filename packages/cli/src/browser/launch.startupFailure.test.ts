@@ -61,3 +61,26 @@ describe.runIf(process.platform !== "win32")("a browser that dies at startup", (
     expect(failure?.message).not.toContain("exited with code");
   }, 60_000);
 });
+
+describe("a launch failure whose diagnosis cannot run", () => {
+  it("still reports the launch error when puppeteer cannot give the default arguments", async () => {
+    const launchError = new Error("Failed to launch the browser process");
+    const puppeteer = {
+      launch: async () => {
+        throw launchError;
+      },
+      defaultArgs: () => {
+        throw new TypeError("no defaults");
+      },
+    };
+    const failure = await launchManagedBrowser(puppeteer as never, {
+      executablePath: "/bin/true",
+      headless: true,
+      args: [],
+    }).then(
+      () => undefined,
+      (error: unknown) => error as Error,
+    );
+    expect(failure).toBe(launchError);
+  });
+});
