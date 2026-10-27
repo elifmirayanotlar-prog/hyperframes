@@ -137,7 +137,6 @@ function createExclusively(file: string): boolean {
   return recordOwnership(file);
 }
 
-/** A lock whose start cannot be recorded is given back, so a retry finds no file of ours that nobody would release. */
 function recordOwnership(file: string): true {
   try {
     recordStart(file);
