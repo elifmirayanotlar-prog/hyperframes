@@ -898,7 +898,11 @@ async function launchBrowser(
         protocolTimeout: fingerprint.protocolTimeoutMs,
       })
       .catch(async (error: unknown) => {
-        throw await explainChromeLaunchFailure(error, fingerprint.executablePath, args);
+        const defaults = await ppt.defaultArgs({
+          headless: true,
+          args: withHyperframesBrowserMarker(args),
+        });
+        throw await explainChromeLaunchFailure(error, fingerprint.executablePath, defaults);
       });
   const probe = (target: Browser, timeoutMs?: number) =>
     probeBeginFrameSupport(target, timeoutMs).catch((error) => ({

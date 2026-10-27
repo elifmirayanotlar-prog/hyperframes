@@ -28,7 +28,10 @@ export function nameChromeExit(
 
 function startupArgs(args: readonly string[], profile: string): string[] {
   const kept = args.filter(
-    (arg) => !arg.startsWith("--remote-debugging") && !arg.startsWith("--user-data-dir"),
+    (arg) =>
+      arg.startsWith("--") &&
+      !arg.startsWith("--remote-debugging") &&
+      !arg.startsWith("--user-data-dir"),
   );
   return [...kept, `--user-data-dir=${profile}`, "--remote-debugging-port=0", "about:blank"];
 }
@@ -46,7 +49,7 @@ function tail(stderr: string): string {
 export async function diagnoseChromeStartup(
   executablePath: string,
   args: readonly string[],
-  options: { timeoutMs?: number; platform?: NodeJS.Platform } = {},
+  options: { timeoutMs?: number; platform?: NodeJS.Platform; signal?: AbortSignal } = {},
 ): Promise<string> {
   const profile = mkdtempSync(join(tmpdir(), "hf-chrome-probe-"));
   const timeoutMs = options.timeoutMs ?? PROBE_TIMEOUT_MS;
@@ -61,6 +64,15 @@ export async function diagnoseChromeStartup(
         child.kill();
         resolve(`Chrome started and kept running for ${timeoutMs} ms when launched on its own.`);
       }, timeoutMs);
+      options.signal?.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          child.kill();
+          resolve("The startup check was cancelled.");
+        },
+        { once: true },
+      );
       child.stderr.on("data", (chunk: Buffer) => {
         stderr = (stderr + chunk.toString()).slice(-4000);
       });
@@ -90,8 +102,9 @@ export async function explainChromeLaunchFailure(
   error: unknown,
   executablePath: string | undefined,
   args: readonly string[] | undefined,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   if (!executablePath || !(error instanceof Error)) return error;
-  const diagnosis = await diagnoseChromeStartup(executablePath, args ?? []);
+  const diagnosis = await diagnoseChromeStartup(executablePath, args ?? [], { signal });
   return new Error(`${error.message}\n${diagnosis}`, { cause: error });
 }

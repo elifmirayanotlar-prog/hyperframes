@@ -30,4 +30,34 @@ describe.runIf(process.platform !== "win32")("a browser that dies at startup", (
     expect(failure?.message).toContain("out of memory");
     expect(failure?.cause).toBeInstanceOf(Error);
   }, 60_000);
+
+  it("starts the probe headless, as puppeteer starts it, so a full Chrome is not run headful", async () => {
+    const executablePath = fakeBrowser(
+      "console.error(process.argv.slice(2).join(' ')); process.exit(3);",
+    );
+    const puppeteer = (await import("puppeteer-core")).default;
+    const failure = await launchManagedBrowser(puppeteer, {
+      executablePath,
+      headless: true,
+      args: [],
+    }).then(
+      () => undefined,
+      (error: unknown) => error as Error,
+    );
+    expect(failure?.message).toMatch(/--headless/);
+  }, 60_000);
+
+  it("skips the diagnosis for a launch whose failure the caller handles, such as the GPU probe", async () => {
+    const executablePath = fakeBrowser("process.exit(3);");
+    const puppeteer = (await import("puppeteer-core")).default;
+    const failure = await launchManagedBrowser(
+      puppeteer,
+      { executablePath, headless: true, args: [] },
+      { diagnose: false },
+    ).then(
+      () => undefined,
+      (error: unknown) => error as Error,
+    );
+    expect(failure?.message).not.toContain("exited with code");
+  }, 60_000);
 });

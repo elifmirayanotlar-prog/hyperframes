@@ -58,3 +58,27 @@ describe.runIf(process.platform !== "win32")("diagnoseChromeStartup", () => {
     expect(await diagnoseChromeStartup("/no/such/chrome", [])).toContain("could not be started");
   });
 });
+
+describe.runIf(process.platform !== "win32")("diagnoseChromeStartup cancel and arguments", () => {
+  it("stops the probe at once when the caller cancels it", async () => {
+    const chrome = fakeBrowser("setInterval(() => {}, 1000);");
+    const abort = new AbortController();
+    const started = Date.now();
+    const pending = diagnoseChromeStartup(chrome, [], { signal: abort.signal, timeoutMs: 30_000 });
+    setTimeout(() => abort.abort(), 100);
+    expect(await pending).toContain("cancelled");
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("passes the flags it is given, such as --headless, and drops stray positional arguments", async () => {
+    const chrome = fakeBrowser("console.error(process.argv.slice(2).join(' ')); process.exit(3);");
+    const diagnosis = await diagnoseChromeStartup(chrome, [
+      "--headless=new",
+      "about:blank",
+      "--no-first-run",
+    ]);
+    expect(diagnosis).toContain("--headless=new");
+    expect(diagnosis).toContain("--no-first-run");
+    expect(diagnosis.match(/about:blank/g)).toHaveLength(1);
+  });
+});

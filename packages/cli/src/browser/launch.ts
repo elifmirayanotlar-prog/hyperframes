@@ -25,6 +25,7 @@ const browsers = new Set<Browser>();
 const closing = new WeakMap<Browser, Promise<void>>();
 const watchdogs = new WeakMap<Browser, ChromeWatchdog>();
 const pending = new Map<Promise<Browser>, AbortController>();
+const diagnosing = new Set<AbortController>();
 const sessionCleanups = new Set<() => Promise<void>>();
 const CLOSE_GRACE_MS = 1_000;
 const LAUNCH_TIMEOUT_MS = 30_000;
@@ -77,11 +78,15 @@ export async function resolveManagedGpuMode(
   return resolveCaptureBrowserGpuMode(requestedMode, chromePath, {
     launch: async (puppeteer, options) => {
       context.signal?.throwIfAborted();
-      const browser = await launchManagedBrowser(puppeteer, {
-        ...options,
-        ...(context.noListen ? oneProcessOverPipe(options) : {}),
-        signal: context.signal,
-      });
+      const browser = await launchManagedBrowser(
+        puppeteer,
+        {
+          ...options,
+          ...(context.noListen ? oneProcessOverPipe(options) : {}),
+          signal: context.signal,
+        },
+        { diagnose: false },
+      );
       try {
         context.onBrowser?.(browser);
       } catch (error) {
@@ -97,6 +102,7 @@ export async function resolveManagedGpuMode(
 export async function launchManagedBrowser(
   puppeteer: PuppeteerNode,
   options: LaunchOptions,
+  { diagnose = true }: { diagnose?: boolean } = {},
 ): Promise<Browser> {
   const sandboxed = isOneProcessOverPipe(options) || inAgentSandbox();
   try {
@@ -105,19 +111,36 @@ export async function launchManagedBrowser(
     const unnamedSeatbelt =
       !sandboxed &&
       (machServiceDenied(normalizeErrorMessage(error)) || pipeLaunchClosedOnMac(error));
-    if (!unnamedSeatbelt) throw await withStartupDiagnosis(withRemediation(error), options);
+    if (!unnamedSeatbelt)
+      throw await withStartupDiagnosis(withRemediation(error), puppeteer, options, diagnose);
     return launchOwnedBrowser(puppeteer, oneProcessOverPipe(options)).catch(
       async (retryError: unknown) => {
-        throw await withStartupDiagnosis(withRemediation(retryError), options);
+        throw await withStartupDiagnosis(withRemediation(retryError), puppeteer, options, diagnose);
       },
     );
   }
 }
 
-async function withStartupDiagnosis(error: unknown, options: LaunchOptions): Promise<unknown> {
-  if (options.signal?.aborted || shutdown || error instanceof Error === false) return error;
+async function withStartupDiagnosis(
+  error: unknown,
+  puppeteer: PuppeteerNode,
+  options: LaunchOptions,
+  diagnose: boolean,
+): Promise<unknown> {
+  if (!diagnose || !options.executablePath || options.signal?.aborted || shutdown) return error;
+  if (!(error instanceof Error)) return error;
   if (sandboxDeniedRemediation(normalizeErrorMessage(error))) return error;
-  return explainChromeLaunchFailure(error, options.executablePath, options.args);
+  const args = await puppeteer.defaultArgs({
+    headless: options.headless ?? true,
+    args: withHyperframesBrowserMarker(options.args),
+  });
+  const abort = new AbortController();
+  diagnosing.add(abort);
+  try {
+    return await explainChromeLaunchFailure(error, options.executablePath, args, abort.signal);
+  } finally {
+    diagnosing.delete(abort);
+  }
 }
 
 function withRemediation(error: unknown): unknown {
@@ -184,7 +207,7 @@ function untilLaunchOrAbort(launch: Promise<Browser>, signal: AbortSignal): Prom
 
 /** Resolved launches keep their signal live; only pending launches are aborted during shutdown. */
 async function closeManagedBrowsers(): Promise<void> {
-  for (const abort of pending.values()) abort.abort();
+  for (const abort of [...pending.values(), ...diagnosing]) abort.abort();
   await Promise.allSettled(pending.keys());
   const results = await Promise.allSettled([...browsers].map(closeManagedBrowser));
   results.push(...(await Promise.allSettled([...sessionCleanups].map((cleanup) => cleanup()))));
