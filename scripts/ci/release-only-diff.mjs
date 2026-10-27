@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Says whether a pull request changes only a release's own files: manifest versions, release notes, the changelog.
-//   node scripts/ci/release-only-diff.mjs [--base <ref, default HEAD^1>] [--verify]   writes release_only= to $GITHUB_OUTPUT
-// --verify also exits 1 when the release is inconsistent: mixed versions, no notes, an unreviewed TODO, no changelog entry.
+//   node scripts/ci/release-only-diff.mjs [--base <ref>] [--verify]; writes release_only= to $GITHUB_OUTPUT
+// --verify also exits 1 on mixed versions, missing notes, an unreviewed TODO or a missing changelog entry.
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { basename } from "node:path";
@@ -26,7 +26,8 @@ function withoutVersion(text) {
 
 /**
  * Sorts changed paths into the release's own and the rest.
- * @param {string[]} paths @param {(path: string) => string | null} before @param {(path: string) => string | null} after
+ * @param {string[]} paths
+ * @param {(path: string) => string | null} before @param {(path: string) => string | null} after
  * @returns {{ releaseOnly: boolean, other: string[], versions: Map<string, string> }}
  */
 export function classify(paths, before, after) {
