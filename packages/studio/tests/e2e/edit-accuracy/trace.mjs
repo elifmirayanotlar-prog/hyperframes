@@ -9,5 +9,4 @@ export const traceBench = (kind, data = {}) => {
       JSON.stringify({ t: Date.now(), kind, ...data }) + "\n",
     );
 };
-export const hashOf = (text) =>
-  createHash("sha256").update(String(text)).digest("hex").slice(0, 8);
+export const hashOf = (text) => createHash("sha256").update(String(text)).digest("hex").slice(0, 8);
