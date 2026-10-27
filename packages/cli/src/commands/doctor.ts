@@ -49,7 +49,7 @@ export { parseToolVersion };
 export const TESTED_FFMPEG_VERSION = "8.0.1";
 
 export function ffmpegDoctorDetail(detail: string): string {
-  return detail.includes(TESTED_FFMPEG_VERSION)
+  return new RegExp(`^ffmpeg n?${TESTED_FFMPEG_VERSION.replaceAll(".", "\\.")}(?![.\\d])`).test(detail)
     ? `${detail} (tested build)`
     : `${detail}; loudness numbers are only comparable on ${TESTED_FFMPEG_VERSION}`;
 }

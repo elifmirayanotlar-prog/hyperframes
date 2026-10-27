@@ -363,9 +363,13 @@ describe("ffmpegDoctorDetail", () => {
     expect(ffmpegDoctorDetail(`ffmpeg n${TESTED_FFMPEG_VERSION}-66-gabc`)).toContain(
       "(tested build)",
     );
-    expect(ffmpegDoctorDetail("ffmpeg 7.0.2-static")).toContain(
-      `only comparable on ${TESTED_FFMPEG_VERSION}`,
-    );
+    for (const other of [
+      "ffmpeg 7.0.2-static",
+      `ffmpeg 7.1 at ~/ffmpeg-${TESTED_FFMPEG_VERSION}/bin/ffmpeg`,
+      `ffmpeg ${TESTED_FFMPEG_VERSION}0-static`,
+    ]) {
+      expect(ffmpegDoctorDetail(other)).toContain(`only comparable on ${TESTED_FFMPEG_VERSION}`);
+    }
   });
 
   it("names the build CI and the render images pin", () => {
@@ -374,6 +378,8 @@ describe("ffmpegDoctorDetail", () => {
       ".github/actions/install-ffmpeg-linux/action.yml",
       "packages/cli/src/docker/Dockerfile.render",
       "packages/gcp-cloud-run/Dockerfile",
+      "Dockerfile.test",
+      "examples/k8s-jobs/Dockerfile.example",
     ]) {
       expect(readFileSync(join(root, f), "utf8")).toContain(`n${TESTED_FFMPEG_VERSION}-`);
     }
