@@ -107,6 +107,11 @@ function logHdrResolution(
   );
 }
 
+/** True when the output can never carry HDR (forced SDR or a non-mp4 format): HDR sources must be tone-mapped. */
+export function rendersSdrOnly(config: Pick<RenderConfig, "hdrMode" | "format">): boolean {
+  return config.hdrMode === "force-sdr" || (config.format ?? "mp4") !== "mp4";
+}
+
 export function resolveEffectiveHdrMode(input: HdrModeInput): EffectiveHdr {
   const hdrMode = input.hdrMode ?? "auto";
   const videoColorSpaces = (input.extractionResult?.extracted ?? []).map(
