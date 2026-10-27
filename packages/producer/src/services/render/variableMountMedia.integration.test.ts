@@ -42,17 +42,17 @@ const CLIP = `<template id="clip-template">
 </template>
 `;
 
-/** Black for `black` seconds, then white for `white` seconds. */
+/** Black for `black` seconds, then white for `white` seconds (none: black only). */
 function makeClip(path: string, black: number, white: number): void {
-  const made = spawnSync(
-    FFMPEG,
-    ["-hide_banner", "-loglevel", "error"]
-      .concat(["-f", "lavfi", "-i", `color=c=black:s=${WIDTH}x${HEIGHT}:r=${FPS}:d=${black}`])
-      .concat(white > 0 ? ["-f", "lavfi", "-i", `color=c=white:s=${WIDTH}x${HEIGHT}:r=${FPS}:d=${white}`] : [])
-      .concat(white > 0 ? ["-filter_complex", "concat=n=2:v=1:a=0"] : [])
-      .concat(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", path]),
-    { encoding: "utf-8" },
-  );
+  const size = `s=${WIDTH}x${HEIGHT}:r=${FPS}`;
+  const args = ["-hide_banner", "-loglevel", "error"];
+  args.push("-f", "lavfi", "-i", `color=c=black:${size}:d=${black}`);
+  if (white > 0) {
+    args.push("-f", "lavfi", "-i", `color=c=white:${size}:d=${white}`);
+    args.push("-filter_complex", "concat=n=2:v=1:a=0");
+  }
+  args.push("-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", path);
+  const made = spawnSync(FFMPEG, args, { encoding: "utf-8" });
   if (made.status !== 0) throw new Error(`fixture failed: ${made.stderr}`);
 }
 
