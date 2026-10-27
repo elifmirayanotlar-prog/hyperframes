@@ -152,7 +152,7 @@ function withRemediation(error: unknown): unknown {
 }
 
 function destroyCdpPipes(child: ChildProcess): void {
-  for (const pipe of child.stdio.slice(3)) pipe?.destroy();
+  for (const pipe of child.stdio?.slice(3) ?? []) pipe?.destroy();
 }
 
 async function launchOwnedBrowser(
