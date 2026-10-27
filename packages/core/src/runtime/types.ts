@@ -473,11 +473,8 @@ export type RuntimeMediaClip = {
   /** The rate lane when the clip has one; otherwise `playbackRate`. */
   rate?: RateSpec;
   loop: boolean;
-  /** Source media duration in seconds (from el.duration). Used for loop wrapping. */
   sourceDuration: number | null;
-  // Volume keyframes probed from the GSAP timeline, as the renderer does; when present they drive
-  // volume instead of `data-volume`, so the 60 Hz tick cannot race GSAP's own seek.
+  /** Probed from the GSAP timeline as the renderer does; when set they drive volume, not `data-volume`. */
   volumeKeyframes?: VolumeKeyframe[];
-  /** Clip-edge fades from `data-fade-in` / `data-fade-out`; see audioFade.ts. */
   fades?: AudioFades;
 };
