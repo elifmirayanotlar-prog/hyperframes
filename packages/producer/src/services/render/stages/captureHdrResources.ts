@@ -582,6 +582,9 @@ function hdrWindowFfmpegArgs(a: {
   return [
     ...["-ss", (a.mediaStart + seekFrame / a.fps).toFixed(6), "-i", a.srcPath],
     ...["-vf", filters.join(","), "-frames:v", String(a.frames)],
+    // The raw muxer has no timestamps, so FFmpeg's default CFR sync would pad from pts 0 up to the
+    // trimmed window's first frame with copies of it. Write exactly the frames the graph emits.
+    ...["-fps_mode", "passthrough"],
   ];
 }
 

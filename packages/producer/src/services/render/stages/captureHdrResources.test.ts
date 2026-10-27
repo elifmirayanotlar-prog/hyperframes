@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -824,4 +824,56 @@ describe("extractHdrVideoFrames loop frame count", () => {
       rmSync(framesDir, { recursive: true, force: true });
     }
   });
+});
+
+describe.skipIf(!HAS_FFMPEG)("raw HDR windows past the first (#6556)", () => {
+  it("gives every composition frame its own source frame across window boundaries", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hf-hdr-window-dupes-"));
+    const src = join(dir, "counter.mp4");
+    try {
+      const synth = await runFfmpeg([
+        ...["-hide_banner", "-loglevel", "error", "-f", "lavfi"],
+        ...["-i", "testsrc2=s=64x64:d=4:rate=30", "-f", "lavfi", "-i", "sine=d=4"],
+        // The audio track matters: with one in the input, FFmpeg's default CFR sync pads a
+        // timestamp-less raw output from pts 0 (camera/phone clips always carry audio).
+        ...["-c:v", "libx264", "-pix_fmt", "yuv420p", "-g", "30", "-c:a", "aac", "-y", src],
+      ]);
+      expect(synth.success).toBe(true);
+      const video = hdrVideo("counter", { src, start: 0, end: 4 });
+      const fixture = hdrExtractionFixture([video], join(dir, "frames"));
+      fixture.job = createRenderJob({ fps: { num: 30, den: 1 }, quality: "standard" });
+      fixture.composition.duration = 4;
+      fixture.prep.hdrExtractionDims.set(video.id, { width: 64, height: 64 });
+      const frameSize = 64 * 64 * 6;
+      const extracted = await extractHdrVideoFrames({
+        ...fixture,
+        width: 64,
+        height: 64,
+        // 8-frame windows: frames 8..119 all come from seeked + trimmed passes.
+        windowBytes: 8 * frameSize,
+        runFfmpegImpl: runFfmpeg,
+        extractMediaMetadataImpl: extractMediaMetadata,
+        resolveFinalFrameExtractionWindowImpl: resolveFinalFrameExtractionWindow,
+      });
+      try {
+        const source = extracted.sources.get(video.id);
+        expect(source?.frameCount).toBe(120);
+        const seen = new Set<string>();
+        const buf = Buffer.alloc(frameSize);
+        for (let i = 0; i < 120; i++) {
+          const lease = await source!.windows.lease(i);
+          expect(lease).not.toBeNull();
+          readSync(lease!.fd, buf, 0, frameSize, lease!.offset);
+          lease!.release();
+          seen.add(buf.toString("base64"));
+        }
+        expect(seen.size).toBe(120);
+      } finally {
+        for (const s of extracted.sources.values()) cleanupHdrVideoFrameSource(s);
+        extracted.releaseReservation();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
