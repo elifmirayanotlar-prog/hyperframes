@@ -338,12 +338,8 @@ export function createControls(
   document.addEventListener("touchmove", onTouchMove, { passive: true });
   document.addEventListener("touchend", onTouchEnd);
 
-  // The one place that decides whether the bar may fade: playing, nothing focused or dragged.
   const canHide = () =>
-    isPlaying &&
-    !scrubbing &&
-    !volumeScrubbing &&
-    !controls.contains((controls.getRootNode() as Document | ShadowRoot).activeElement);
+    isPlaying && !scrubbing && !volumeScrubbing && !controls.querySelector(":focus-visible");
 
   const reveal = () => {
     controls.classList.remove("hfp-hidden");

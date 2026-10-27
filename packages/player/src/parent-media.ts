@@ -413,7 +413,6 @@ export class ParentMediaManager {
 
     const el = tag === "video" ? document.createElement("video") : new Audio();
     el.preload = "auto";
-    // Same CORS mode as the authored element, so a Web Audio tap on the copy is not tainted.
     const crossOrigin = source?.getAttribute("crossorigin");
     if (crossOrigin != null) el.setAttribute("crossorigin", crossOrigin);
     el.src = src;
