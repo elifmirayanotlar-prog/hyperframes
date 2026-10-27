@@ -170,8 +170,6 @@ export function hasAutoStartVideos(html: string): boolean {
   return document.querySelector("video[data-hf-auto-start]") !== null;
 }
 
-/** Whether `variableId` has a value anywhere the runtime looks: the render's variables, a mount's own
- * `data-variable-values` above the element, or a default a composition declares. */
 function variableHasValue(
   element: Element,
   variableId: string,
@@ -186,10 +184,8 @@ function variableHasValue(
 }
 
 /**
- * Variable-bound image/audio/video sources are resolved by the browser runtime, not
- * the static compiler. Probe them whenever a variable the element names has a value
- * (the render's, its mount's `data-variable-values`, or a declared default), so media
- * extraction follows the resolved source and not the authored placeholder.
+ * Variable-bound sources are resolved by the browser runtime, not the static compiler. Probe them whenever the
+ * element's variable has a value (the render's, its mount's `data-variable-values`, a declared default).
  */
 export function hasVariableBoundMedia(
   html: string,
