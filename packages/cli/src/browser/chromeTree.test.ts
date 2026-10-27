@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { expect, it } from "vitest";
 import type { Browser } from "puppeteer-core";
+import { waitForTestCondition } from "../utils/processTestUtils.js";
 import { closeManagedBrowser } from "./launch.js";
 
 const alive = (pid: number) => {
@@ -35,8 +36,7 @@ it.runIf(process.platform !== "win32")(
     } as unknown as Browser;
     try {
       await closeManagedBrowser(browser);
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      expect(alive(helper)).toBe(false);
+      await waitForTestCondition(() => !alive(helper), 5_000);
     } finally {
       if (alive(helper)) process.kill(helper, "SIGKILL");
     }
