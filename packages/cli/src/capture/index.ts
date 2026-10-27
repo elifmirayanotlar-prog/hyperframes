@@ -1,4 +1,5 @@
 import { createCaptureWatchdog, runWithWatchdog } from "./captureWatchdog.js";
+import type { CaptureAttempt } from "./captureWatchdog.js";
 import { createPartialCaptureState, writePartialCaptureBundle } from "./partialCapture.js";
 import type { PartialCaptureState } from "./partialCapture.js";
 import { captureWebsiteAttempt } from "./captureAttempt.js";
@@ -36,10 +37,7 @@ async function captureTarget(
   const state = createPartialCaptureState(opts);
   const attempt = captureWebsiteAttempt(opts, onProgress, false, watchdog, state, localOrigin);
   try {
-    const first = await runWithWatchdog(attempt, watchdog.promise);
-    if (first.kind === "deadline") return deadlineResult(opts, state);
-    if (first.kind === "error") throw first.error;
-    return first.result;
+    return settle(await runWithWatchdog(attempt, watchdog.promise), opts, state);
   } catch (err) {
     if (!(err instanceof NavigationDeadlineError) || watchdog.expired() || !err.webglObserved) {
       throw err;
@@ -55,8 +53,7 @@ async function captureTarget(
     });
     const retry = captureWebsiteAttempt(opts, onProgress, true, watchdog, state, localOrigin);
     const second = await runWithWatchdog(retry, watchdog.promise);
-    if (second.kind === "deadline") return deadlineResult(opts, state);
-    if (second.kind === "error") throw second.error;
+    if (second.kind !== "complete") return settle(second, opts, state);
     return {
       ...second.result,
       warnings: [...new Set([...state.warnings, ...second.result.warnings])],
@@ -64,6 +61,16 @@ async function captureTarget(
   } finally {
     watchdog.dispose();
   }
+}
+
+function settle(
+  outcome: CaptureAttempt<CaptureResult>,
+  opts: CaptureOptions,
+  state: PartialCaptureState,
+): CaptureResult {
+  if (outcome.kind === "deadline") return deadlineResult(opts, state);
+  if (outcome.kind === "error") throw outcome.error;
+  return outcome.result;
 }
 
 function deadlineResult(opts: CaptureOptions, state: PartialCaptureState): CaptureResult {
