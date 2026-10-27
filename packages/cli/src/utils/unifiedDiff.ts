@@ -42,26 +42,32 @@ const replaceAll = (a: string[], b: string[]): Op[] => [
 const movesDown = (v: Int32Array, offset: number, k: number, d: number) =>
   k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!);
 
+/** How far along diagonal `k` of round `d` the walk gets in `a`, taking every shared line it meets. */
+function reach(v: Int32Array, offset: number, k: number, d: number, a: string[], b: string[]) {
+  let x = movesDown(v, offset, k, d) ? v[offset + k + 1]! : v[offset + k - 1]! + 1;
+  while (x < a.length && x - k < b.length && a[x] === b[x - k]) x++;
+  return x;
+}
+
 function middle(a: string[], b: string[]): Op[] {
-  const n = a.length;
-  const m = b.length;
-  if (n + m > MAX_EDIT_LINES) return replaceAll(a, b);
-  const offset = n + m;
+  if (a.length + b.length > MAX_EDIT_LINES) return replaceAll(a, b);
+  const offset = a.length + b.length;
   const v = new Int32Array(2 * offset + 2);
   const trace: Int32Array[] = [];
   for (let d = 0; ; d++) {
     trace.push(v.slice());
     for (let k = -d; k <= d; k += 2) {
-      let px = movesDown(v, offset, k, d) ? v[offset + k + 1]! : v[offset + k - 1]! + 1;
-      let py = px - k;
-      while (px < n && py < m && a[px] === b[py]) {
-        px++;
-        py++;
-      }
-      v[offset + k] = px;
-      if (px >= n && py >= m) return backtrack(trace, a, b, offset, d);
+      const x = reach(v, offset, k, d, a, b);
+      v[offset + k] = x;
+      if (x >= a.length && x - k >= b.length) return backtrack(trace, a, b, offset, d);
     }
   }
+}
+
+/** Pushes the shared lines of `a` from index `x` back down to `to`, and returns `to`. */
+function slideBack(ops: Op[], a: string[], x: number, to: number) {
+  for (; x > to; x--) ops.push({ kind: " ", text: a[x - 1]! });
+  return to;
 }
 
 function backtrack(trace: Int32Array[], a: string[], b: string[], offset: number, last: number) {
@@ -72,17 +78,12 @@ function backtrack(trace: Int32Array[], a: string[], b: string[], offset: number
     const k = x - y;
     const down = movesDown(trace[d]!, offset, k, d);
     const prevX = trace[d]![offset + (down ? k + 1 : k - 1)]!;
-    const prevY = prevX - (down ? k + 1 : k - 1);
-    while (x > (down ? prevX : prevX + 1) && y > (down ? prevY + 1 : prevY)) {
-      ops.push({ kind: " ", text: a[--x]! });
-      y--;
-    }
-    ops.push(down ? { kind: "+", text: b[--y]! } : { kind: "-", text: a[--x]! });
+    x = slideBack(ops, a, x, down ? prevX : prevX + 1);
+    y = x - k;
+    if (down) ops.push({ kind: "+", text: b[--y]! });
+    else ops.push({ kind: "-", text: a[--x]! });
   }
-  while (x > 0) {
-    ops.push({ kind: " ", text: a[--x]! });
-    y--;
-  }
+  slideBack(ops, a, x, 0);
   return ops.reverse();
 }
 
