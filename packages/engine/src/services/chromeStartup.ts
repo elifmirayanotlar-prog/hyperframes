@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { removeTreeBestEffort } from "./removeTree.js";
+import { removeTreeBestEffort } from "@hyperframes/core/remove-tree";
 
 const STDERR_TAIL_LINES = 8;
 const PROBE_TIMEOUT_MS = 8_000;

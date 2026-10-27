@@ -1,4 +1,4 @@
-import { explainChromeLaunchFailure } from "@hyperframes/core/chrome-startup";
+import { explainChromeLaunchFailure } from "@hyperframes/engine/chrome-startup";
 import type { Browser, LaunchOptions, PuppeteerNode } from "puppeteer-core";
 import { withHyperframesBrowserMarker } from "@hyperframes/core/browser-marker";
 import {

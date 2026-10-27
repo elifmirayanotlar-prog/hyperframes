@@ -6,7 +6,7 @@
  * launch args, pooled browser acquisition/release.
  */
 
-import { explainChromeLaunchFailure } from "@hyperframes/core/chrome-startup";
+import { explainChromeLaunchFailure } from "./chromeStartup.js";
 import { withHyperframesBrowserMarker } from "@hyperframes/core/browser-marker";
 import { scanHtmlOpeningTags } from "@hyperframes/parsers/html-attribute-spans";
 import type { Browser, LaunchOptions, Page, PuppeteerNode } from "puppeteer-core";
