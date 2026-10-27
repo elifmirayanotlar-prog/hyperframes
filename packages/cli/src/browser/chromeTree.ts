@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-const run = promisify(execFile);
+const PS_TIMEOUT_MS = 2_000;
 
 export interface TreeMember {
   pid: number;
@@ -9,9 +9,17 @@ export interface TreeMember {
 }
 
 async function processTable(): Promise<Array<TreeMember & { ppid: number }>> {
-  const { stdout } = await run("ps", ["-axo", "pid=,ppid=,command="], {
-    maxBuffer: 16 * 1024 * 1024,
-  });
+  let stdout: string;
+  try {
+    ({ stdout } = await promisify(execFile)("ps", ["-axo", "pid=,ppid=,command="], {
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: PS_TIMEOUT_MS,
+    }));
+  } catch (error) {
+    // A stalled ps is killed at the timeout: nothing recorded, so the close stays bounded.
+    if ((error as { killed?: boolean }).killed) return [];
+    throw error;
+  }
   return stdout.split("\n").flatMap((line) => {
     const row = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
     return row ? [{ pid: Number(row[1]), ppid: Number(row[2]), command: row[3]! }] : [];
