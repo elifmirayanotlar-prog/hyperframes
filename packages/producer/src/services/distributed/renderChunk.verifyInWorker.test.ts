@@ -12,7 +12,9 @@ const stage = vi.hoisted(() => ({
     screenshot: boolean;
     verify: ((session: unknown) => Promise<void>) | undefined;
   }[],
-  run: undefined as undefined | ((call: number) => Promise<never>),
+  run: undefined as
+    | undefined
+    | ((call: number, input: { dedupPerfs: { captureMode: string }[] }) => Promise<never>),
 }));
 
 vi.mock("@hyperframes/engine", async (importOriginal) => ({
@@ -23,10 +25,11 @@ vi.mock("../render/stages/captureStage.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../render/stages/captureStage.js")>()),
   runCaptureStage: (input: {
     plan: { forceScreenshot: boolean };
+    dedupPerfs: { captureMode: string }[];
     verifyFirstSession?: (session: unknown) => Promise<void>;
   }) => {
     stage.calls.push({ screenshot: input.plan.forceScreenshot, verify: input.verifyFirstSession });
-    return stage.run?.(stage.calls.length) ?? Promise.reject(new Error("no stage"));
+    return stage.run?.(stage.calls.length, input) ?? Promise.reject(new Error("no stage"));
   },
 }));
 vi.mock("../render/stages/encodeStage.js", async (importOriginal) => ({
@@ -125,4 +128,27 @@ it("a check that itself fails surfaces its own error, even one that looks like a
   };
   expect(await render().catch((error: unknown) => error)).toBe(failure);
   expect(stage.calls).toHaveLength(1);
+});
+
+it("a chunk whose first worker dies before its check still settles, failing with that error", async () => {
+  const failure = new Error("Protocol error: Target closed");
+  stage.run = async () => {
+    throw failure;
+  };
+  expect(await render().catch((error: unknown) => error)).toBe(failure);
+  expect(stage.calls).toHaveLength(1);
+});
+
+it("a BeginFrame failure before the check retries the chunk in screenshot mode and carries on instead of hanging", async () => {
+  stage.run = async (call, input) => {
+    if (call === 1) {
+      throw new Error("[Parallel] Capture failed: worker 0: HeadlessExperimental.beginFrame boom");
+    }
+    input.dedupPerfs.push({ captureMode: "screenshot" });
+    return undefined as never;
+  };
+  const outcome = await render().catch((error: unknown) => error);
+  expect(stage.calls.map((call) => call.screenshot)).toEqual([false, true]);
+  expect(outcome).toBeInstanceOf(Error);
+  expect(outcome).not.toBe(STOP);
 });

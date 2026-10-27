@@ -1071,6 +1071,8 @@ export async function renderChunk(
           // captured BeginFrame files or attempt telemetry to mix with the
           // screenshot result.
           rmSync(workDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+          // Worker 0 may have died before measuring; the screenshot attempt extracts at full size.
+          boxesMeasured();
           mkdirSync(framesDir, { recursive: true });
           capturePerfs.length = 0;
           captureAttempts.length = 0;
@@ -1088,6 +1090,7 @@ export async function renderChunk(
       }).catch(async (captureError: unknown) => {
         // The verification's own failure, not the workers' echo of it.
         if (verifyFailure !== undefined) throw verifyFailure;
+        boxesFailed(captureError);
         await deferredVideoFrames;
         throw captureError;
       });
