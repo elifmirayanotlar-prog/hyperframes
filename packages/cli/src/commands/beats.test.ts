@@ -90,6 +90,13 @@ describe.skipIf(!canDecode)("hyperframes beats", () => {
     expect(Math.abs(report.bpm - 120)).toBeLessThanOrEqual(1);
   });
 
+  it("points a media file argument to hyperframes audio instead of reading it as a project", async () => {
+    const song = join(project("file-arg", 120), "assets", "song.wav");
+    const { exitCode, out } = await runBeats(song);
+    expect(exitCode).toBe(1);
+    expect(out).toContain(`hyperframes audio ${song} --only beats --json`);
+  });
+
   it("writes nothing for a track with no steady beat", async () => {
     const dir = project("silent", null);
     const { exitCode, out } = await runBeats(dir);

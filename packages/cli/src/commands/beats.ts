@@ -1,7 +1,7 @@
 import { failCommand } from "../utils/commandResult.js";
 import { defineCommand } from "citty";
-import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
 import {
   analyzeMusicFromSignal,
   audioRelPathForSrc,
@@ -21,6 +21,7 @@ import { c } from "../ui/colors.js";
 export const examples: Example[] = [
   ["Generate the beat file for the current project", "hyperframes beats"],
   ["Generate for a specific directory", "hyperframes beats ./my-video"],
+  ["Beats of a single audio file", "hyperframes audio music.mp3 --only beats --json"],
 ];
 
 function fail(message: string): never {
@@ -101,6 +102,12 @@ export default defineCommand({
     json: { type: "boolean", description: "Output result as JSON", default: false },
   },
   async run({ args }) {
+    if (args.dir && existsSync(resolve(args.dir)) && statSync(resolve(args.dir)).isFile()) {
+      fail(
+        `${args.dir} is a file; beats takes a project folder. ` +
+          `For one audio or video file run: hyperframes audio ${args.dir} --only beats --json`,
+      );
+    }
     const project = resolveProject(args.dir);
     const { rel, audioPath } = resolveMusicTarget(project);
     if (!args.json) console.log(c.dim(`Analyzing ${rel}…`));
