@@ -67,6 +67,37 @@ describe.skipIf(!HAS_FFMPEG)("a source whose first audio track ffmpeg cannot dec
     expect(loudestHz(pcm.subarray(SAMPLE_RATE, SAMPLE_RATE * 3))).toBe(1000);
   });
 
+  it("bakes a rate lane from that track", async () => {
+    const work = mkdtempSync(join(dir, "work-"));
+    const output = `${work}.m4a`;
+    const rate = {
+      target: "rate" as const,
+      points: [
+        { t: 0, v: 1 },
+        { t: 2, v: 1.5 },
+      ],
+    };
+    const clip = {
+      id: "clip",
+      src: "phone.mov",
+      start: 0,
+      end: 2,
+      mediaStart: 0,
+      layer: 0,
+      volume: 1,
+    };
+    const result = await processCompositionAudio(
+      [{ ...clip, playbackRate: rate, type: "video" }],
+      dir,
+      work,
+      output,
+      2,
+    );
+    expect(result, result.error).toMatchObject({ success: true, tracksProcessed: 1 });
+    const pcm = ffmpeg(["-i", output, "-ac", "1", "-ar", String(SAMPLE_RATE), "-f", "s16le", "-"]);
+    expect(loudestHz(pcm.subarray(SAMPLE_RATE, SAMPLE_RATE * 3))).toBe(1000);
+  });
+
   it("probes that track, and counts a clip with only the undecodable one as silent", async () => {
     const audio = await extractAudioMetadata(join(dir, "phone.mov"));
     expect([audio.audioStream, audio.channels, audio.audioStreamCount]).toEqual([1, 1, 2]);
