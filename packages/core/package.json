@@ -86,6 +86,12 @@
       "import": "./src/removeTree.ts",
       "types": "./src/removeTree.ts"
     },
+    "./chrome-startup": {
+      "bun": "./src/chromeStartup.ts",
+      "node": "./dist/chromeStartup.js",
+      "import": "./src/chromeStartup.ts",
+      "types": "./src/chromeStartup.ts"
+    },
     "./project-folders": {
       "bun": "./src/projectFolders.ts",
       "node": "./dist/projectFolders.js",
@@ -647,6 +653,10 @@
       "./remove-tree": {
         "import": "./dist/removeTree.js",
         "types": "./dist/removeTree.d.ts"
+      },
+      "./chrome-startup": {
+        "import": "./dist/chromeStartup.js",
+        "types": "./dist/chromeStartup.d.ts"
       },
       "./project-folders": {
         "import": "./dist/projectFolders.js",

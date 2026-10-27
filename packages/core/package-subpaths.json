@@ -74,6 +74,12 @@
       "types": "./dist/removeTree.d.ts",
       "environments": ["bun", "node"]
     },
+    "./chrome-startup": {
+      "source": "./src/chromeStartup.ts",
+      "runtime": "./dist/chromeStartup.js",
+      "types": "./dist/chromeStartup.d.ts",
+      "environments": ["bun", "node"]
+    },
     "./project-folders": {
       "source": "./src/projectFolders.ts",
       "runtime": "./dist/projectFolders.js",

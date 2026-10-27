@@ -1,3 +1,4 @@
+import { explainChromeLaunchFailure } from "@hyperframes/core/chrome-startup";
 import type { Browser, LaunchOptions, PuppeteerNode } from "puppeteer-core";
 import { withHyperframesBrowserMarker } from "@hyperframes/core/browser-marker";
 import {
@@ -27,6 +28,7 @@ const pending = new Map<Promise<Browser>, AbortController>();
 const sessionCleanups = new Set<() => Promise<void>>();
 const CLOSE_GRACE_MS = 1_000;
 const LAUNCH_TIMEOUT_MS = 30_000;
+const SLOW_START_NOTICE_MS = 5_000;
 const EXIT_POLL_MS = 50;
 let listening = false;
 let shutdown: Promise<void> | undefined;
@@ -103,13 +105,20 @@ export async function launchManagedBrowser(
     const unnamedSeatbelt =
       !sandboxed &&
       (machServiceDenied(normalizeErrorMessage(error)) || pipeLaunchClosedOnMac(error));
-    if (!unnamedSeatbelt) throw withRemediation(error);
+    if (!unnamedSeatbelt) throw await withStartupDiagnosis(withRemediation(error), options);
     return launchOwnedBrowser(puppeteer, oneProcessOverPipe(options)).catch(
-      (retryError: unknown) => {
-        throw withRemediation(retryError);
+      async (retryError: unknown) => {
+        throw await withStartupDiagnosis(withRemediation(retryError), options);
       },
     );
   }
+}
+
+/** A failed launch says how Chrome itself ends when started alone: its exit code, last stderr lines, or that it stays up. */
+async function withStartupDiagnosis(error: unknown, options: LaunchOptions): Promise<unknown> {
+  if (options.signal?.aborted || shutdown || error instanceof Error === false) return error;
+  if (sandboxDeniedRemediation(normalizeErrorMessage(error))) return error;
+  return explainChromeLaunchFailure(error, options.executablePath, options.args);
 }
 
 function withRemediation(error: unknown): unknown {
@@ -145,6 +154,7 @@ async function launchOwnedBrowser(
           limit,
         )
       : undefined;
+  const slow = setTimeout(() => console.error("Chrome is still starting..."), SLOW_START_NOTICE_MS);
   pending.set(launch, abort);
   try {
     const browser = await launch;
@@ -157,6 +167,7 @@ async function launchOwnedBrowser(
     return browser;
   } finally {
     clearTimeout(timer);
+    clearTimeout(slow);
     pending.delete(launch);
   }
 }
