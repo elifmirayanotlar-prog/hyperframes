@@ -156,6 +156,15 @@ describe("localUrlRewriter", () => {
     expect(rewrite(text)).toBe(text);
   });
 
+  it("matches the origin literally, not as a pattern", () => {
+    expect(rewrite("http://127x0x0x1:4100/a")).toBe("http://127x0x0x1:4100/a");
+    const plus = localUrlRewriter("http://a+b.example:4100", "/srv/site");
+    expect(plus("http://aab.example:4100/x http://ab.example:4100/x")).toBe(
+      "http://aab.example:4100/x http://ab.example:4100/x",
+    );
+    expect(plus("http://a+b.example:4100/x")).toBe(pathToFileURL("/srv/site/x").href);
+  });
+
   it("rewrites every string inside a nested value", () => {
     expect(
       rewriteStrings({ a: ["http://127.0.0.1:4100/x.png", 3], b: { c: null } }, rewrite),

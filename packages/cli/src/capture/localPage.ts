@@ -220,7 +220,7 @@ const TEXT_OUTPUTS = new Set([".json", ".md", ".html", ".htm", ".css", ".txt", "
 
 /** Maps every URL on the local server's origin to the `file://` URL of the same path in the root. */
 export function localUrlRewriter(origin: string, root: string): (text: string) => string {
-  const escapedOrigin = origin.replace(/[.:/]/g, "\\$&");
+  const escapedOrigin = origin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(`${escapedOrigin}(?![0-9])(/[^\\s"'<>()\\\\]*)?`, "g");
   return (text) =>
     text.replace(pattern, (_match, path: string | undefined) => {
