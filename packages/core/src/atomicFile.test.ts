@@ -530,7 +530,7 @@ describe("HF_WRITE_TRACE", () => {
       const line = JSON.parse(lines[0]!);
       expect(line).toMatchObject({ kind: "write", file: "a.html", size: 10 });
       expect(line.hash).toBe(
-        crypto.createHash("sha1").update("<p>two</p>").digest("hex").slice(0, 8),
+        crypto.createHash("sha256").update("<p>two</p>").digest("hex").slice(0, 8),
       );
       expect(line.stack[0]).toContain("replaceFileAtomically");
     } finally {

@@ -30,7 +30,7 @@ function traceWrite(filePath: string, content: string | Uint8Array): void {
   const out = process.env.HF_WRITE_TRACE;
   if (!out || !filePath.endsWith(".html")) return;
   const text = typeof content === "string" ? content : Buffer.from(content).toString("utf8");
-  const hash = createHash("sha1").update(text).digest("hex").slice(0, 8);
+  const hash = createHash("sha256").update(text).digest("hex").slice(0, 8);
   const stack = (new Error().stack ?? "")
     .split("\n")
     .slice(2, 7)
