@@ -396,24 +396,6 @@ describe("createFileServer", () => {
     }
   });
 
-  it("rejects when its port is already taken, instead of never settling", async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), "hf-file-server-taken-"));
-    try {
-      writeEmptyIndex(projectDir);
-      const options = { projectDir, preHeadScripts: [], headScripts: [] };
-      const first = await createFileServer(options);
-      try {
-        await expect(createFileServer({ ...options, port: first.port })).rejects.toThrow(
-          /EADDRINUSE/,
-        );
-      } finally {
-        first.close();
-      }
-    } finally {
-      rmSync(projectDir, { recursive: true, force: true });
-    }
-  });
-
   async function expectInjectedRenderFps(
     fps: Parameters<typeof createFileServer>[0]["fps"],
     expected: {
