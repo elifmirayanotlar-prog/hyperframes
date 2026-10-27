@@ -253,26 +253,27 @@ export function pinnedPackageBesideCli(
   cliUrl = import.meta.url,
 ): { resolution: "entry" | "package"; path: string } | null {
   const req = createRequire(cliUrl);
+  const pinnedFolder = (req.resolve.paths(name) ?? []).find((dir) =>
+    hasPinnedVersion(join(dir, name), name),
+  );
+  if (pinnedFolder === undefined) return null;
   try {
-    // The first folder on require's paths holding the pinned version, loaded by its own path: a copy of another version
-    // nearer on the paths (a person's ~/node_modules) must not hide the host's, nor send the CLI to install its own.
-    const copy = (req.resolve.paths(name) ?? [])
-      .map((dir) => join(dir, name))
-      .find((dir) => existsSync(join(dir, "package.json")) && hasPinnedVersion(dir, name));
-    if (!copy) return null;
-    try {
-      return { resolution: "entry", path: realpathSync(req.resolve(copy)) };
-    } catch {
-      return { resolution: "package", path: realpathSync(copy) };
-    }
+    return {
+      resolution: "entry",
+      path: realpathSync(req.resolve(name, { paths: [pinnedFolder] })),
+    };
   } catch {
-    return null;
+    return { resolution: "package", path: realpathSync(join(pinnedFolder, name)) };
   }
 }
 
 function hasPinnedVersion(copy: string, name: PinnedPackage): boolean {
-  const manifest = readFileSync(join(copy, "package.json"), "utf-8");
-  return (JSON.parse(manifest) as { version?: string }).version === PINNED_PACKAGES[name];
+  try {
+    const manifest = readFileSync(join(copy, "package.json"), "utf-8");
+    return (JSON.parse(manifest) as { version?: string }).version === PINNED_PACKAGES[name];
+  } catch {
+    return false;
+  }
 }
 
 export function loadBesideCli(name: PinnedPackage, cliUrl = import.meta.url): unknown | null {
