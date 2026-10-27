@@ -148,7 +148,6 @@ interface FinishedContrast {
 }
 
 const COPY_HEARTBEAT_MS = 10_000;
-export const COPY_PHASE_CAP_MS = 10 * 60_000;
 
 function elapsedText(ms: number): string {
   const seconds = Math.round(ms / 1000);
@@ -242,35 +241,17 @@ export async function preResolveHostileMediaProxies(
   const heartbeat = startCopyHeartbeat(sources, cached);
   const stopped = new AbortController();
   const forgetStop = onStopSignal(() => stopped.abort());
-  const done = new Set<number>();
-  let capTimer: NodeJS.Timeout | undefined;
-  const capReached = new Promise<never>((_, reject) => {
-    capTimer = setTimeout(() => {
-      stopped.abort();
-      const unfinished = sources.filter((_, index) => !done.has(index)).map(({ file }) => file);
-      reject(
-        new Error(
-          `Making browser-playable copies took longer than ${elapsedText(COPY_PHASE_CAP_MS)} and was stopped after ${Math.round((Date.now() - startedAt) / 1000)}s. Still unfinished: ${unfinished.join(", ")}. Re-run check to keep going (finished copies are reused), or pass --no-proxy to skip them.`,
-        ),
-      );
-    }, COPY_PHASE_CAP_MS);
-  });
-  const results = await Promise.race([
-    resolveProxies(
-      projectDir,
-      sources,
-      (index) => {
-        done.add(index);
-        settled += 1;
-        heartbeat.settled(index);
-        if (toMake > 0) console.error(`[hyperframes] browser-playable copies: ${settled}/${total}`);
-      },
-      heartbeat.progress,
-      stopped.signal,
-    ),
-    capReached,
-  ]).finally(() => {
-    clearTimeout(capTimer);
+  const results = await resolveProxies(
+    projectDir,
+    sources,
+    (index) => {
+      settled += 1;
+      heartbeat.settled(index);
+      if (toMake > 0) console.error(`[hyperframes] browser-playable copies: ${settled}/${total}`);
+    },
+    heartbeat.progress,
+    stopped.signal,
+  ).finally(() => {
     heartbeat.stop();
     forgetStop();
   });

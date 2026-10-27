@@ -16,7 +16,6 @@ import {
   matchComponentFindings,
   captureOverviewShot,
   keepBrokenImageAborts,
-  COPY_PHASE_CAP_MS,
   preResolveHostileMediaProxies,
   dropFailedProxyEchoes,
   runBrowserCheck,
@@ -1341,36 +1340,6 @@ describe("preResolveHostileMediaProxies", () => {
     resolveTranscode?.();
     await pending;
     expect(settled).toBe(true);
-  });
-
-  it("stops the copy phase at its cap and names the files still unfinished", async () => {
-    vi.useFakeTimers();
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const projectDir = mkProjectDir();
-    const hostile = { codecName: "prores", browserHostile: true, representativeMime: null };
-    mocks.scanProjectMediaCodecMap.mockResolvedValue({
-      "/slow.mov": { ...hostile, hasAlpha: false },
-      "/done.mov": { ...hostile, hasAlpha: false },
-    });
-    mocks.resolveProxy.mockImplementation((_dir: string, source: string) =>
-      source.endsWith("done.mov")
-        ? Promise.resolve("/cache/done.mov")
-        : new Promise<string>(() => {}),
-    );
-
-    const outcome = preResolveHostileMediaProxies(projectDir, "<html></html>").then(
-      () => "resolved",
-      (error: Error) => error.message,
-    );
-    await vi.advanceTimersByTimeAsync(COPY_PHASE_CAP_MS - 1);
-    expect(mocks.proxySignal!.aborted).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
-
-    const message = await outcome;
-    expect(message).toContain("longer than 10m 0s");
-    expect(message).toContain("Still unfinished: slow.mov.");
-    expect(message).not.toContain("done.mov");
-    expect(mocks.proxySignal!.aborted).toBe(true);
   });
 
   it("makes the copy at the size that fills the composition, not at the source size", async () => {

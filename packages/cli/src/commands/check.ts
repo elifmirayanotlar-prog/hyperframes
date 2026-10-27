@@ -392,7 +392,7 @@ function parseCheckOptions(args: Record<string, unknown>): CheckOptions {
     maxIssues: positiveInteger(args["max-issues"], DEFAULT_CHECK_OPTIONS.maxIssues),
     collapseStatic: args["collapse-static"] !== false,
     tolerance: nonNegativeNumber(args.tolerance, DEFAULT_CHECK_OPTIONS.tolerance),
-    timeout: Math.max(500, parseTimeoutMs(args.timeout, DEFAULT_CHECK_OPTIONS.timeout)),
+    timeout: parseTimeoutMs(args.timeout, DEFAULT_CHECK_OPTIONS.timeout, 500),
     contrast: args.contrast !== false,
     ...(checkReview()?.skipContrastInMotion ? { skipContrastInMotion: true } : {}),
     strict: args.strict === true,
