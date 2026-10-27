@@ -151,8 +151,8 @@ function withRemediation(error: unknown): unknown {
   return remediation ? new Error(remediation, { cause: error }) : error;
 }
 
-function destroyCdpPipes(child: ChildProcess): void {
-  for (const pipe of child.stdio?.slice(3) ?? []) pipe?.destroy();
+function destroyBrowserPipes(child: ChildProcess): void {
+  for (const pipe of child.stdio ?? []) pipe?.destroy();
 }
 
 async function launchOwnedBrowser(
@@ -194,7 +194,7 @@ async function launchOwnedBrowser(
     if (watchdog) watchdogs.set(browser, watchdog);
     child.once("exit", () => {
       browsers.delete(browser);
-      destroyCdpPipes(child);
+      destroyBrowserPipes(child);
     });
     return browser;
   } finally {
