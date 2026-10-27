@@ -42,8 +42,12 @@ export interface CapturePhaseProgress {
 }
 
 export interface CaptureOptions {
-  /** URL to capture */
+  /** Public http(s) URL to capture. With `localFile`, the result reports the file's `file://` URL instead. */
   url: string;
+  /** Local HTML file (or directory with index.html) to capture instead of `url` */
+  localFile?: string;
+  /** Directory `localFile` may read subresources from (default: the file's directory) */
+  localRoot?: string;
   /** Output directory */
   outputDir: string;
   /** Viewport width (default: 1920) */

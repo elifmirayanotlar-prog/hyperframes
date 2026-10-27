@@ -17,6 +17,8 @@ export async function launchCaptureBrowser(options: {
   disableWebgl: boolean;
   width: number;
   height: number;
+  /** Loopback origin of a local page server that Chrome may reach without the proxy. */
+  localOrigin?: string;
 }): Promise<{ browser: Browser; close(): Promise<void> }> {
   const proxy = await startCaptureProxy();
   let profile: string | undefined;
@@ -59,7 +61,8 @@ export async function launchCaptureBrowser(options: {
       args: [
         ...captureBrowserArgs(options.disableWebgl, options.width, options.height),
         `--proxy-server=${proxy.url}`,
-        "--proxy-bypass-list=<-loopback>",
+        // Only a rule after <-loopback> can exempt a loopback host; earlier ones are overridden.
+        `--proxy-bypass-list=<-loopback>${options.localOrigin ? `;${new URL(options.localOrigin).host}` : ""}`,
         "--disable-quic",
         "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
       ],

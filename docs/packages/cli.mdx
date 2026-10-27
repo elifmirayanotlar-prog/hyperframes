@@ -222,6 +222,29 @@ link-local and special-use addresses are refused. IPv6-only sites are currently
 unsupported. Plain WebSocket upgrades are refused; slow or refused resources
 may be absent from the capture.
 
+#### Local HTML files
+
+`--local-file` captures an HTML file on disk instead of a URL, for example a
+page someone uploaded. Pass a directory to open its `index.html`.
+
+```bash
+npx hyperframes capture --local-file ./upload/index.html -o upload-capture --json
+npx hyperframes capture --local-file ./site/pages/about.html --local-root ./site
+```
+
+The URL argument still accepts only public HTTP(S) URLs; a `file://` URL there
+is refused as before. With `--local-file`, the CLI serves the file's directory
+(or `--local-root`, which must contain the file) on a loopback port for the
+length of the capture, and Chrome loads the page from it. Only regular files
+whose real path is inside that root are served: `../` paths and symlinks that
+leave it answer 404, and the page cannot read `file://` URLs. Every other
+request, remote or private, goes through the capture proxy and the
+public-address policy above, so a reference to a private address stays refused
+and counts as `unavailable`. Local images, fonts and stylesheets are copied
+into the capture like remote ones; `--skip-assets` skips images and SVGs
+exactly as it does for a URL. `url` in the JSON result is the file's `file://`
+URL.
+
 Capture needs direct internet access. Since 0.8.164 it does not use
 `HTTPS_PROXY` or `HTTP_PROXY`: its own proxy dials each checked public address
 itself. Where the only way out is a proxy, as in some sandboxes and corporate
@@ -272,6 +295,8 @@ thin with counts on it was cut short.
 | `--skip-vision`     | Do not run AI image captioning                                                                                                                    |
 | `--max-screenshots` | Maximum page-capture files, including the full-page plate; derived contact sheets are excluded. Positive integer; default 21. A value of 1 captures only the top viewport.                                                                              |
 | `--json`            | Structured output for programmatic use                                                                                                             |
+| `--local-file`      | Capture a local HTML file, or a directory's `index.html`, instead of a URL. See [Local HTML files](#local-html-files).                                       |
+| `--local-root`      | With `--local-file`: the directory the page may read local files from. Default: the file's directory.                                                |
 | `--video <folder>`  | Switch to video-download mode against a captured folder's manifest. Pair with `--list`, `--index`, or `--video-url`.                               |
 
 You get `AGENTS.md`, `CLAUDE.md`, `meta.json`, scroll screenshots, extracted

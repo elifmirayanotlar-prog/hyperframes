@@ -2,6 +2,7 @@ import { createCaptureWatchdog, runWithWatchdog } from "./captureWatchdog.js";
 import { createPartialCaptureState, writePartialCaptureBundle } from "./partialCapture.js";
 import type { PartialCaptureState } from "./partialCapture.js";
 import { captureWebsiteAttempt } from "./captureAttempt.js";
+import { resolveLocalCaptureTarget, startLocalPageServer } from "./localPage.js";
 import { NavigationDeadlineError } from "./captureErrors.js";
 import { CAPTURE_PHASE_SCHEMA } from "./types.js";
 import type { CaptureOptions, CaptureResult } from "./types.js";
@@ -12,9 +13,28 @@ export async function captureWebsite(
   opts: CaptureOptions,
   onProgress?: (stage: string, detail?: string) => void,
 ): Promise<CaptureResult> {
+  if (opts.localFile === undefined) {
+    if (opts.localRoot !== undefined) throw new Error("localRoot requires localFile");
+    return captureTarget(opts, onProgress);
+  }
+  const local = resolveLocalCaptureTarget(opts.localFile, opts.localRoot);
+  const server = await startLocalPageServer(local);
+  try {
+    const result = await captureTarget({ ...opts, url: server.url }, onProgress, server.origin);
+    return { ...result, url: local.fileUrl };
+  } finally {
+    await server.close();
+  }
+}
+
+async function captureTarget(
+  opts: CaptureOptions,
+  onProgress: ((stage: string, detail?: string) => void) | undefined,
+  localOrigin?: string,
+): Promise<CaptureResult> {
   const watchdog = createCaptureWatchdog(opts.captureDeadlineMs);
   const state = createPartialCaptureState(opts);
-  const attempt = captureWebsiteAttempt(opts, onProgress, false, watchdog, state);
+  const attempt = captureWebsiteAttempt(opts, onProgress, false, watchdog, state, localOrigin);
   try {
     const first = await runWithWatchdog(attempt, watchdog.promise);
     if (first.kind === "deadline") return deadlineResult(opts, state);
@@ -33,7 +53,7 @@ export async function captureWebsite(
       remainingMs: null,
       reason: "webgl-disabled-retry",
     });
-    const retry = captureWebsiteAttempt(opts, onProgress, true, watchdog, state);
+    const retry = captureWebsiteAttempt(opts, onProgress, true, watchdog, state, localOrigin);
     const second = await runWithWatchdog(retry, watchdog.promise);
     if (second.kind === "deadline") return deadlineResult(opts, state);
     if (second.kind === "error") throw second.error;

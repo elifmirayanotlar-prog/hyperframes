@@ -51,6 +51,16 @@ describe("capture browser transport lifecycle", () => {
       mocks.browserClose.mock.invocationCallOrder[0] ?? 0,
     );
   });
+  it("exempts only a local page server's exact host and port from the proxy", async () => {
+    const session = await launchCaptureBrowser({
+      ...options,
+      localOrigin: "http://127.0.0.1:9123",
+    });
+    expect(mocks.launch.mock.calls[0]?.[1].args).toContain(
+      "--proxy-bypass-list=<-loopback>;127.0.0.1:9123",
+    );
+    await session.close();
+  });
   it("closes proxy when launch fails", async () => {
     mocks.launch.mockRejectedValue(new Error("launch failed"));
     await expect(launchCaptureBrowser(options)).rejects.toThrow("launch failed");
