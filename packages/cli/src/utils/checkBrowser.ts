@@ -1007,11 +1007,13 @@ async function collectCraftFrame(page: Page, time: number): Promise<CraftFrame> 
   });
   const record = isRecord(raw) ? raw : {};
   const parts = Reflect.get(record, "parts");
+  const coveredBy = stringValue(record, "coveredBy");
   return {
     time,
     parts: Array.isArray(parts) ? parts.flatMap(parseCraftTextPart) : [],
     held: booleanValue(record, "held") ?? false,
     painted: booleanValue(record, "painted") ?? true,
+    ...(coveredBy ? { coveredBy } : {}),
     signature: stringValue(record, "signature") ?? "",
   };
 }
@@ -2119,6 +2121,7 @@ const LAYOUT_ISSUE_CODES: readonly LayoutIssueCode[] = [
   "content_overlap",
   "visibility_escapes_segment",
   "text_occluded",
+  "canvas_covered",
   "video_alpha_unread",
   "text_not_painted",
   "caption_zone_collision",
