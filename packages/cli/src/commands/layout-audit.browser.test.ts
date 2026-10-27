@@ -3681,7 +3681,7 @@ describe("layout-audit.browser canvas_covered", () => {
   });
 });
 
-/** A 1920x1080 stage with an orange shape (or a line of text, or an unpainted box) and a full-frame rect above or below it. */
+/** A 1920x1080 stage: a shape, a line of text or an unpainted box, with a full-frame rect above or below. */
 function auditCoverScene(
   order: "above" | "below",
   coverAttrs = "",
