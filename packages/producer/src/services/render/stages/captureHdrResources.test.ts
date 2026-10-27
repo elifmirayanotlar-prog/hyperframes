@@ -912,7 +912,7 @@ describe.skipIf(!HAS_FFMPEG)("raw HDR windows past the first (#6556)", () => {
       // The picture starts at 0.5 s = frame 15; until then the first frame shows.
       expect(frames).toHaveLength(135);
       expect(new Set(frames.slice(0, 16)).size).toBe(1);
-      expect(new Set(frames.slice(15)).size).toBe(120);
+      expect(frames.slice(15)).toEqual(await leaseAll(counter, 4, dir));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
