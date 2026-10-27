@@ -1,8 +1,16 @@
-import { createReadStream, realpathSync, statSync } from "node:fs";
+import {
+  createReadStream,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  type Dirent,
+} from "node:fs";
+import { writeCaptureFileSync } from "./captureFile.js";
 import { realpath, stat } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export interface LocalCaptureTarget {
@@ -48,7 +56,24 @@ const CONTENT_TYPES: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
 };
 
-const activeOrigins = new Set<string>();
+const activeSites = new Map<string, string>();
+
+function localSiteName(entry: string): string {
+  const stem = basename(entry, extname(entry));
+  const name = stem.toLowerCase() === "index" ? basename(dirname(entry)) : stem;
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "local"
+  );
+}
+
+/** Name a capture is filed under: the local page's name for an active local server, else the host. */
+export function captureSiteName(url: string): string {
+  const parsed = new URL(url);
+  return activeSites.get(parsed.origin) ?? parsed.hostname.replace(/^www\./, "");
+}
 
 function isInside(root: string, path: string): boolean {
   const rel = relative(root, path);
@@ -63,15 +88,15 @@ export function resolveLocalCaptureTarget(target: string, root?: string): LocalC
   const path = target.startsWith("file:") ? fileURLToPath(target) : target;
   let entry: string;
   try {
-    entry = realpathSync(resolve(path));
-    if (statSync(entry).isDirectory()) entry = realpathSync(join(entry, "index.html"));
+    entry = realpathSync.native(resolve(path));
+    if (statSync(entry).isDirectory()) entry = realpathSync.native(join(entry, "index.html"));
   } catch {
     throw new Error(`Local file not found: ${target}`);
   }
   if (!statSync(entry).isFile()) throw new Error(`Local capture target is not a file: ${target}`);
   let rootPath: string;
   try {
-    rootPath = realpathSync(resolve(root ?? dirname(entry)));
+    rootPath = realpathSync.native(resolve(root ?? dirname(entry)));
   } catch {
     throw new Error(`Local capture root not found: ${root}`);
   }
@@ -138,14 +163,14 @@ export async function startLocalPageServer(target: LocalCaptureTarget): Promise<
   if (!address || typeof address === "string") throw new Error("Local page server did not bind");
   const origin = `http://127.0.0.1:${address.port}`;
   const entryPath = relative(target.root, target.entry).split(sep).map(encodeURIComponent);
-  activeOrigins.add(origin);
+  activeSites.set(origin, localSiteName(target.entry));
   let closing: Promise<void> | undefined;
   return {
     origin,
     url: `${origin}/${entryPath.join("/")}`,
     close() {
       closing ??= new Promise<void>((resolveClose) => {
-        activeOrigins.delete(origin);
+        activeSites.delete(origin);
         server.close(() => resolveClose());
         for (const socket of sockets) socket.destroy();
       });
@@ -162,6 +187,72 @@ export function fetchLocalPageUrl(url: string, init?: RequestInit): Promise<Resp
   } catch {
     return null;
   }
-  if (!activeOrigins.has(origin)) return null;
+  if (!activeSites.has(origin)) return null;
   return fetch(url, { ...init, redirect: "manual" });
+}
+
+const TEXT_OUTPUTS = new Set([".json", ".md", ".html", ".htm", ".css", ".txt", ".svg", ".js", ""]);
+
+/** Maps every URL on the local server's origin to the `file://` URL of the same path in the root. */
+export function localUrlRewriter(origin: string, root: string): (text: string) => string {
+  const escapedOrigin = origin.replace(/[.:/]/g, "\\$&");
+  const pattern = new RegExp(`${escapedOrigin}(?![0-9])(/[^\\s"'<>()\\\\]*)?`, "g");
+  return (text) =>
+    text.replace(pattern, (_match, path: string | undefined) => {
+      const url = new URL(path ?? "/", origin);
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(url.pathname);
+      } catch {
+        decoded = url.pathname;
+      }
+      return pathToFileURL(join(root, decoded)).href + url.search + url.hash;
+    });
+}
+
+/** Applies `rewrite` to every string inside a JSON-like value. */
+export function rewriteStrings<T>(value: T, rewrite: (text: string) => string): T {
+  if (typeof value === "string") return rewrite(value) as T;
+  if (Array.isArray(value)) return value.map((item) => rewriteStrings(item, rewrite)) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, rewriteStrings(item, rewrite)]),
+    ) as T;
+  }
+  return value;
+}
+
+/** Rewrites local-server URLs in every text file the capture wrote, and records the source. */
+export function rewriteLocalCaptureOutput(
+  outputDir: string,
+  rewrite: (text: string) => string,
+  sourceUrl: string,
+): void {
+  const walk = (dir: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.isFile() && TEXT_OUTPUTS.has(extname(entry.name).toLowerCase())) {
+        const text = readFileSync(path, "utf8");
+        const next = rewrite(text);
+        if (next !== text) writeCaptureFileSync(path, next, "utf-8");
+      }
+    }
+  };
+  walk(outputDir);
+  const metaPath = join(outputDir, "meta.json");
+  try {
+    const meta: unknown = JSON.parse(readFileSync(metaPath, "utf8"));
+    if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+      writeCaptureFileSync(metaPath, JSON.stringify({ ...meta, source: sourceUrl }, null, 2));
+    }
+  } catch {
+    /* no meta.json to annotate */
+  }
 }

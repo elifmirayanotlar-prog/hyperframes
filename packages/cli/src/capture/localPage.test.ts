@@ -5,7 +5,10 @@ import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { safeFetch } from "./assetDownloader.js";
 import {
+  captureSiteName,
   fetchLocalPageUrl,
+  localUrlRewriter,
+  rewriteStrings,
   resolveLocalCaptureTarget,
   startLocalPageServer,
   type LocalPageServer,
@@ -15,7 +18,7 @@ let base: string;
 let site: string;
 
 beforeAll(() => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), "hf-local-page-")));
+  base = realpathSync.native(mkdtempSync(join(tmpdir(), "hf-local-page-")));
   site = join(base, "site");
   mkdirSync(join(site, "pages"), { recursive: true });
   writeFileSync(join(site, "index.html"), "<h1>home</h1>");
@@ -104,5 +107,44 @@ describe("startLocalPageServer", () => {
     await closed.close();
     expect(fetchLocalPageUrl(`${closed.origin}/index.html`)).toBeNull();
     expect(await safeFetch(`${closed.origin}/index.html`)).toBeNull();
+  });
+});
+
+describe("localUrlRewriter", () => {
+  const rewrite = localUrlRewriter("http://127.0.0.1:4100", "/srv/site");
+
+  it("maps local-server URLs to file:// URLs of the same path in the root", () => {
+    expect(rewrite(`url(http://127.0.0.1:4100/fonts/a%20b.woff2) "http://127.0.0.1:4100"`)).toBe(
+      `url(${pathToFileURL("/srv/site/fonts/a b.woff2").href}) "${pathToFileURL("/srv/site/").href}"`,
+    );
+    expect(rewrite("http://127.0.0.1:4100/p.html?x=1#top")).toBe(
+      `${pathToFileURL("/srv/site/p.html").href}?x=1#top`,
+    );
+  });
+
+  it("leaves other origins alone, including a longer port with the same prefix", () => {
+    const text = "http://127.0.0.1:41000/a https://example.com/a http://127.0.0.1:4101/a";
+    expect(rewrite(text)).toBe(text);
+  });
+
+  it("rewrites every string inside a nested value", () => {
+    expect(
+      rewriteStrings({ a: ["http://127.0.0.1:4100/x.png", 3], b: { c: null } }, rewrite),
+    ).toEqual({ a: [pathToFileURL("/srv/site/x.png").href, 3], b: { c: null } });
+  });
+});
+
+describe("captureSiteName", () => {
+  it("names an active local server after its page, and a website after its host", async () => {
+    const server = await startLocalPageServer(
+      resolveLocalCaptureTarget(join(site, "pages", "about page.html")),
+    );
+    try {
+      expect(captureSiteName(server.url)).toBe("about-page");
+    } finally {
+      await server.close();
+    }
+    expect(captureSiteName(server.url)).toBe("127.0.0.1");
+    expect(captureSiteName("https://www.example.com/x")).toBe("example.com");
   });
 });

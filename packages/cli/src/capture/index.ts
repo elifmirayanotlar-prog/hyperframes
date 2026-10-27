@@ -2,7 +2,13 @@ import { createCaptureWatchdog, runWithWatchdog } from "./captureWatchdog.js";
 import { createPartialCaptureState, writePartialCaptureBundle } from "./partialCapture.js";
 import type { PartialCaptureState } from "./partialCapture.js";
 import { captureWebsiteAttempt } from "./captureAttempt.js";
-import { resolveLocalCaptureTarget, startLocalPageServer } from "./localPage.js";
+import {
+  localUrlRewriter,
+  resolveLocalCaptureTarget,
+  rewriteLocalCaptureOutput,
+  rewriteStrings,
+  startLocalPageServer,
+} from "./localPage.js";
 import { NavigationDeadlineError } from "./captureErrors.js";
 import { CAPTURE_PHASE_SCHEMA } from "./types.js";
 import type { CaptureOptions, CaptureResult } from "./types.js";
@@ -19,11 +25,13 @@ export async function captureWebsite(
   }
   const local = resolveLocalCaptureTarget(opts.localFile, opts.localRoot);
   const server = await startLocalPageServer(local);
+  const rewrite = localUrlRewriter(server.origin, local.root);
   try {
     const result = await captureTarget({ ...opts, url: server.url }, onProgress, server.origin);
-    return { ...result, url: local.fileUrl };
+    return { ...rewriteStrings(result, rewrite), url: local.fileUrl };
   } finally {
     await server.close();
+    rewriteLocalCaptureOutput(opts.outputDir, rewrite, local.fileUrl);
   }
 }
 
@@ -34,12 +42,16 @@ async function captureTarget(
 ): Promise<CaptureResult> {
   const watchdog = createCaptureWatchdog(opts.captureDeadlineMs);
   const state = createPartialCaptureState(opts);
-  const attempt = captureWebsiteAttempt(opts, onProgress, false, watchdog, state, localOrigin);
+  const run = (disableWebgl: boolean) =>
+    captureWebsiteAttempt(opts, onProgress, disableWebgl, watchdog, state, localOrigin);
+  const settle = async (attempt: Promise<CaptureResult>): Promise<CaptureResult> => {
+    const outcome = await runWithWatchdog(attempt, watchdog.promise);
+    if (outcome.kind === "deadline") return deadlineResult(opts, state);
+    if (outcome.kind === "error") throw outcome.error;
+    return outcome.result;
+  };
   try {
-    const first = await runWithWatchdog(attempt, watchdog.promise);
-    if (first.kind === "deadline") return deadlineResult(opts, state);
-    if (first.kind === "error") throw first.error;
-    return first.result;
+    return await settle(run(false));
   } catch (err) {
     if (!(err instanceof NavigationDeadlineError) || watchdog.expired() || !err.webglObserved) {
       throw err;
@@ -53,14 +65,8 @@ async function captureTarget(
       remainingMs: null,
       reason: "webgl-disabled-retry",
     });
-    const retry = captureWebsiteAttempt(opts, onProgress, true, watchdog, state, localOrigin);
-    const second = await runWithWatchdog(retry, watchdog.promise);
-    if (second.kind === "deadline") return deadlineResult(opts, state);
-    if (second.kind === "error") throw second.error;
-    return {
-      ...second.result,
-      warnings: [...new Set([...state.warnings, ...second.result.warnings])],
-    };
+    const second = await settle(run(true));
+    return { ...second, warnings: [...new Set([...state.warnings, ...second.warnings])] };
   } finally {
     watchdog.dispose();
   }

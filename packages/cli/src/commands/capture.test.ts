@@ -207,7 +207,7 @@ describe("capture command — vision control", () => {
       } as never);
       expect(captureWebsiteMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          url: pathToFileURL(realpathSync(join(site, "pages", "about.html"))).href,
+          url: pathToFileURL(realpathSync.native(join(site, "pages", "about.html"))).href,
           localFile: join(site, "pages", "about.html"),
           localRoot: site,
         }),

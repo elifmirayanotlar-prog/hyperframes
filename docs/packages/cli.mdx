@@ -242,8 +242,10 @@ request, remote or private, goes through the capture proxy and the
 public-address policy above, so a reference to a private address stays refused
 and counts as `unavailable`. Local images, fonts and stylesheets are copied
 into the capture like remote ones; `--skip-assets` skips images and SVGs
-exactly as it does for a URL. `url` in the JSON result is the file's `file://`
-URL.
+exactly as it does for a URL. The temporary server never appears in the
+output: `url` in the JSON result, `meta.json` (`source`, and an `id` named after
+the file or its folder), `AGENTS.md` and the extracted files all use `file://`
+URLs of the same paths inside the root.
 
 Capture needs direct internet access. Since 0.8.164 it does not use
 `HTTPS_PROXY` or `HTTP_PROXY`: its own proxy dials each checked public address

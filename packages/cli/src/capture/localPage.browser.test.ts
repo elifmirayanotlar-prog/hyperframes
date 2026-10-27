@@ -64,7 +64,7 @@ describe.skipIf(!chrome || !existsSync(chrome))("real browser local page capture
   beforeAll(async () => {
     await new Promise<void>((resolve) => remote.listen(0, "127.0.0.1", resolve));
     fixture.port = (remote.address() as { port: number }).port;
-    base = realpathSync(mkdtempSync(join(tmpdir(), "hf-local-browser-")));
+    base = realpathSync.native(mkdtempSync(join(tmpdir(), "hf-local-browser-")));
     const site = join(base, "site");
     mkdirSync(site);
     writeFileSync(join(base, "secret.png"), "outside");
