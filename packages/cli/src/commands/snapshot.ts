@@ -149,7 +149,7 @@ export function formatSnapshotTimestamp(time: number): string {
 }
 
 /** The captured stills that are on disk with bytes, as absolute paths; the rest are missing. */
-export function snapshotsOnDisk(projectDir: string, paths: string[], requested: number) {
+export function snapshotsOnDisk(projectDir: string, paths: string[]) {
   const written: string[] = [];
   const missing: string[] = [];
   for (const path of paths) {
@@ -162,7 +162,7 @@ export function snapshotsOnDisk(projectDir: string, paths: string[], requested: 
     }
     (size > 0 ? written : missing).push(absolute);
   }
-  return { written, missing, requested };
+  return { written, missing };
 }
 
 export const SNAPSHOT_IMAGE_NAME =
@@ -673,7 +673,6 @@ async function captureSnapshots(
   const server = await serveCapturePage(projectDir, html, opts.autoProxy);
 
   const savedPaths: string[] = [];
-  let requested = 0;
   let pairSheetFailure: string | null = null;
 
   try {
@@ -739,7 +738,7 @@ async function captureSnapshots(
       });
 
       if (duration <= 0 && !opts.at?.length) {
-        return { paths: [], requested: 0, cleared: [], warnings, pairSheetsSkipped: false };
+        return { paths: [], cleared: [], warnings, pairSheetsSkipped: false };
       }
 
       const readTiming = () =>
@@ -786,7 +785,6 @@ async function captureSnapshots(
               at: opts.at,
               includeEnd: opts.includeEnd,
             });
-      requested = positions.length;
       if (range)
         log(
           `   Sampling ${positions.length} frames within ${range[0]}–${range[1]}s${opts.composition ? ` (composition ${opts.composition})` : ""}`,
@@ -1143,7 +1141,6 @@ async function captureSnapshots(
 
   return {
     paths: savedPaths,
-    requested,
     cleared: replaced,
     warnings,
     pairSheetsSkipped: pairSheetFailure !== null,
@@ -1164,8 +1161,6 @@ async function captureSnapshots(
 interface CapturedSnapshots {
   /** Project-relative where possible, as printed. */
   paths: string[];
-  /** How many stills the run set out to capture. */
-  requested: number;
   /** Stills of an earlier run this one removed from the folder before capturing. */
   cleared: string[];
   /** Why a frame may differ from the composition: shown on the console and in `--json`. */
@@ -1508,7 +1503,7 @@ export default defineCommand({
           review: reviewMode,
           log,
         });
-        const onDisk = snapshotsOnDisk(project.dir, captured.paths, captured.requested);
+        const onDisk = snapshotsOnDisk(project.dir, captured.paths);
         const paths = onDisk.written;
         const framePaths = paths;
         reportArtifacts("snapshot", "frame", framePaths);
@@ -1517,9 +1512,9 @@ export default defineCommand({
           fail(`\n${c.error("✗")} Could not determine composition duration — no frames captured`);
         }
 
-        const short = paths.length < onDisk.requested;
+        const short = onDisk.missing.length > 0;
         const mark = short ? c.error("✗") : c.success("◇");
-        const count = short ? `${paths.length} of ${onDisk.requested}` : String(paths.length);
+        const count = short ? `${paths.length} of ${captured.paths.length}` : String(paths.length);
         log(`\n${mark}  ${count} snapshots saved to ${snapshotDir}`);
         for (const p of paths) {
           log(`   ${p}`);
@@ -1527,7 +1522,7 @@ export default defineCommand({
         if (short) {
           const gone = onDisk.missing.map((path) => `\n   missing: ${path}`).join("");
           fail(
-            `${c.error("✗")} Only ${paths.length} of ${onDisk.requested} snapshots are on disk in ${snapshotDir}.${gone}`,
+            `${c.error("✗")} Only ${paths.length} of ${captured.paths.length} snapshots are on disk in ${snapshotDir}.${gone}`,
           );
         }
         if (against) {

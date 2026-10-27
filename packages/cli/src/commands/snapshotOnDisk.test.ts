@@ -10,17 +10,12 @@ describe("snapshotsOnDisk", () => {
     mkdirSync(join(project, "shots"));
     writeFileSync(join(project, "shots", "a.png"), "png");
     writeFileSync(join(project, "shots", "empty.png"), "");
-    const result = snapshotsOnDisk(
-      project,
-      ["shots/a.png", "shots/empty.png", "shots/gone.png"],
-      3,
-    );
+    const result = snapshotsOnDisk(project, ["shots/a.png", "shots/empty.png", "shots/gone.png"]);
     expect(result.written).toEqual([join(project, "shots", "a.png")]);
     expect(result.missing).toEqual([
       join(project, "shots", "empty.png"),
       join(project, "shots", "gone.png"),
     ]);
-    expect(result.requested).toBe(3);
   });
 
   it("resolves a project-relative path against the project, not the caller's directory", () => {
@@ -30,18 +25,23 @@ describe("snapshotsOnDisk", () => {
     const before = process.cwd();
     process.chdir(elsewhere);
     try {
-      expect(snapshotsOnDisk(project, ["frame.png"], 1).written).toEqual([
-        join(project, "frame.png"),
-      ]);
+      expect(snapshotsOnDisk(project, ["frame.png"]).written).toEqual([join(project, "frame.png")]);
     } finally {
       process.chdir(before);
     }
   });
 
+  it("does not count a frame the run skipped on purpose, such as a --zoom target that is not visible", () => {
+    const project = mkdtempSync(join(tmpdir(), "hf-snap-disk-"));
+    writeFileSync(join(project, "frame-02-at-2s.png"), "png");
+    // The skipped frames never reach the run's list of captured paths, so nothing is reported missing.
+    expect(snapshotsOnDisk(project, ["frame-02-at-2s.png"]).missing).toEqual([]);
+  });
+
   it("keeps an absolute path as it is", () => {
     const folder = mkdtempSync(join(tmpdir(), "hf-snap-abs-"));
     writeFileSync(join(folder, "x.png"), "png");
-    expect(snapshotsOnDisk("/not/the/project", [join(folder, "x.png")], 1).written).toHaveLength(1);
+    expect(snapshotsOnDisk("/not/the/project", [join(folder, "x.png")]).written).toHaveLength(1);
   });
 });
 
