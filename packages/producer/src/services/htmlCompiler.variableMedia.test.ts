@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compileForRender } from "./htmlCompiler.js";
+import { hasVariableBoundMedia } from "./render/stages/probeStage.js";
 
 describe("compileForRender variable-bound media", () => {
   const projectDir = mkdtempSync(join(tmpdir(), "hf-compiler-var-media-"));
@@ -33,12 +34,13 @@ describe("compileForRender variable-bound media", () => {
 
   afterAll(() => rmSync(projectDir, { recursive: true, force: true }));
 
-  it("probe", async () => {
+  it("sends a clip its mount rebinds to a longer file through the browser probe", async () => {
     const compiled = await compileForRender(projectDir, join(projectDir, "index.html"), projectDir, {
       allowSystemFontCapture: false,
     });
-    console.log("VIDEOS", JSON.stringify(compiled.videos));
-    console.log("HOST", compiled.html.match(/<div[^>]*data-variable-values[^>]*>/g));
-    expect(true).toBe(true);
+
+    // Compile reads the authored 3 s placeholder; only the browser knows the mount binds the 13 s clip.
+    expect(compiled.videos.map((video) => video.src)).toEqual(["assets/placeholder.mp4"]);
+    expect(hasVariableBoundMedia(compiled.html, undefined)).toBe(true);
   });
 });

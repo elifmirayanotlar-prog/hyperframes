@@ -54,6 +54,7 @@ import {
   sourceTimeAt,
   timeAtSourceTime,
 } from "@hyperframes/core";
+import { parseHostVariableValues, readDeclaredDefaults } from "@hyperframes/core/compiler";
 import { extractMediaSrcMutations } from "@hyperframes/parsers";
 import type { BrowserMediaElement, CompiledComposition } from "../../htmlCompiler.js";
 import {
@@ -169,16 +170,31 @@ export function hasAutoStartVideos(html: string): boolean {
   return document.querySelector("video[data-hf-auto-start]") !== null;
 }
 
+/** Whether `variableId` has a value anywhere the runtime looks: the render's variables, a mount's own
+ * `data-variable-values` above the element, or a default a composition declares. */
+function variableHasValue(
+  element: Element,
+  variableId: string,
+  variables: Record<string, unknown> | undefined,
+): boolean {
+  if (variables && Object.hasOwn(variables, variableId)) return true;
+  for (let scope = element.parentElement; scope; scope = scope.parentElement) {
+    if (Object.hasOwn(parseHostVariableValues(scope), variableId)) return true;
+    if (Object.hasOwn(readDeclaredDefaults(scope), variableId)) return true;
+  }
+  return Object.hasOwn(readDeclaredDefaults(element.ownerDocument.documentElement), variableId);
+}
+
 /**
  * Variable-bound image/audio/video sources are resolved by the browser runtime, not
- * the static compiler. Probe them whenever the current render overrides the
- * referenced variable so media extraction follows the resolved row value.
+ * the static compiler. Probe them whenever a variable the element names has a value
+ * (the render's, its mount's `data-variable-values`, or a declared default), so media
+ * extraction follows the resolved source and not the authored placeholder.
  */
 export function hasVariableBoundMedia(
   html: string,
   variables: Record<string, unknown> | undefined,
 ): boolean {
-  if (!variables || Object.keys(variables).length === 0) return false;
   const { document } = parseHTML(html);
   return Array.from(
     document.querySelectorAll(
@@ -186,7 +202,7 @@ export function hasVariableBoundMedia(
     ),
   ).some((element) => {
     const variableId = element.getAttribute("data-var-src")?.trim();
-    return Boolean(variableId && Object.hasOwn(variables, variableId));
+    return Boolean(variableId && variableHasValue(element, variableId, variables));
   });
 }
 
