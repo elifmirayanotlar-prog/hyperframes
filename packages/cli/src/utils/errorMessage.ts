@@ -16,3 +16,14 @@ export function normalizeErrorMessage(error: unknown): string {
   }
   return String(error ?? "unknown error");
 }
+
+export async function atStep<T>(step: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof Error && !error.message.includes(` (while ${step})`)) {
+      error.message += ` (while ${step})`;
+    }
+    throw error;
+  }
+}
