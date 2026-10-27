@@ -51,7 +51,6 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ["src/**/*.test.ts"],
     // Many CLI tests cold-import a heavy command module graph via dynamic
     // `import()` (e.g. render.js, auth/status.js, telemetry/system.js). Under
     // the full parallel monorepo run (`bun run --filter '!@hyperframes/producer'
@@ -62,5 +61,27 @@ export default defineConfig({
     // hang. Prefer this one config knob over per-test/per-hook timeout bandaids.
     testTimeout: 20_000,
     hookTimeout: 30_000,
+    // Tests that drive a real Chrome run alone, after everything else: a Chrome launching beside
+    // hundreds of parallel test files was starved past its 30 s launch limit on a 4-core runner.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "unit",
+          include: ["src/**/*.test.ts"],
+          exclude: ["**/node_modules/**", "**/dist/**", "src/**/*.{browser,chromium}.test.ts"],
+          sequence: { groupOrder: 1 },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "chrome",
+          include: ["src/**/*.{browser,chromium}.test.ts"],
+          fileParallelism: false,
+          sequence: { groupOrder: 2 },
+        },
+      },
+    ],
   },
 });
