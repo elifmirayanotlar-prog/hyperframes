@@ -1,8 +1,4 @@
-/**
- * Reads a JSON flag: inline JSON, `-` for stdin or a file path.
- * PowerShell strips the quotes from inline JSON passed to a `.cmd`,
- * so Windows callers need the file or stdin form.
- */
+/** A JSON flag: inline JSON, `-` for stdin or a file path; PowerShell drops inline quotes sent to a `.cmd`. */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
