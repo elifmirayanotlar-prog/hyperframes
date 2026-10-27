@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -352,7 +360,9 @@ describe("checkSettingsLock", () => {
 
 describe("ffmpegDoctorDetail", () => {
   it("marks the tested build and warns on any other", () => {
-    expect(ffmpegDoctorDetail(`ffmpeg n${TESTED_FFMPEG_VERSION}-66-gabc`)).toContain("(tested build)");
+    expect(ffmpegDoctorDetail(`ffmpeg n${TESTED_FFMPEG_VERSION}-66-gabc`)).toContain(
+      "(tested build)",
+    );
     expect(ffmpegDoctorDetail("ffmpeg 7.0.2-static")).toContain(
       `only comparable on ${TESTED_FFMPEG_VERSION}`,
     );

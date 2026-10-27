@@ -416,7 +416,8 @@ export default defineCommand({
       outcomes.push({
         name: result.name,
         ok: result.ok,
-        detail: result.name === "FFmpeg" && result.ok ? ffmpegDoctorDetail(result.detail) : result.detail,
+        detail:
+          result.name === "FFmpeg" && result.ok ? ffmpegDoctorDetail(result.detail) : result.detail,
         ...(result.hint ? { hint: result.hint } : {}),
       });
     }
