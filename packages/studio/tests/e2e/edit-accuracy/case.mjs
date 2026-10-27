@@ -810,8 +810,6 @@ async function measureControl(browser, gesture) {
   try {
     const page = await context.newPage();
     await page.setViewport(VIEWPORT);
-    if (process.env.HF_WRITE_TRACE)
-      await page.evaluateOnNewDocument(() => localStorage.setItem("hf-reload-debug", "1"));
     await page.evaluateOnNewDocument(installWebMcpHost, "__editBench");
     await page.evaluateOnNewDocument(instrumentPage);
     // The real drags run the frame sampler, so the control pays its cost too.
@@ -1009,6 +1007,8 @@ export async function inStudio({ browser, spec, dir, files, url, evidence }, dri
     (evidence.shots[name] = await page.screenshot({ type: "jpeg", quality: 70 }));
   try {
     await page.setViewport(VIEWPORT);
+    if (process.env.HF_WRITE_TRACE)
+      await page.evaluateOnNewDocument(() => localStorage.setItem("hf-reload-debug", "1"));
     await page.evaluateOnNewDocument(installWebMcpHost, "__editBench");
     await page.evaluateOnNewDocument(instrumentPage);
     if (spec.slowSaves) await page.evaluateOnNewDocument(slowSaves, spec.slowSaves);
