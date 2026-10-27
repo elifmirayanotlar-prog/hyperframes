@@ -475,12 +475,8 @@ export type RuntimeMediaClip = {
   loop: boolean;
   /** Source media duration in seconds (from el.duration). Used for loop wrapping. */
   sourceDuration: number | null;
-  /**
-   * Probed volume keyframes from the GSAP timeline (same probe the renderer
-   * uses). When present, `syncRuntimeMedia` drives volume from the envelope
-   * rather than from `data-volume` + GSAP-change tracking, eliminating the
-   * race between the 60 Hz transport tick and GSAP's own seek.
-   */
+  // Volume keyframes probed from the GSAP timeline, as the renderer does; when present they drive
+  // volume instead of `data-volume`, so the 60 Hz tick cannot race GSAP's own seek.
   volumeKeyframes?: VolumeKeyframe[];
   /** Clip-edge fades from `data-fade-in` / `data-fade-out`; see audioFade.ts. */
   fades?: AudioFades;
