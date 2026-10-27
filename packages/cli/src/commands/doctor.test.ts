@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { optionalPackageDir } from "../utils/optionalPackages.js";
 import {
+  TESTED_FFMPEG_VERSION,
   buildDoctorReport,
+  ffmpegDoctorDetail,
   checkFramesCache,
   checkOptionalPackage,
   redactHome,
@@ -344,6 +346,26 @@ describe("checkSettingsLock", () => {
       expect(existsSync(lock)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("ffmpegDoctorDetail", () => {
+  it("marks the tested build and warns on any other", () => {
+    expect(ffmpegDoctorDetail(`ffmpeg n${TESTED_FFMPEG_VERSION}-66-gabc`)).toContain("(tested build)");
+    expect(ffmpegDoctorDetail("ffmpeg 7.0.2-static")).toContain(
+      `only comparable on ${TESTED_FFMPEG_VERSION}`,
+    );
+  });
+
+  it("names the build CI and the render images pin", () => {
+    const root = join(__dirname, "../../../..");
+    for (const f of [
+      ".github/actions/install-ffmpeg-linux/action.yml",
+      "packages/cli/src/docker/Dockerfile.render",
+      "packages/gcp-cloud-run/Dockerfile",
+    ]) {
+      expect(readFileSync(join(root, f), "utf8")).toContain(`n${TESTED_FFMPEG_VERSION}-`);
     }
   });
 });
