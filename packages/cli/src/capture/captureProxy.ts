@@ -172,10 +172,7 @@ async function forwardTunnel(
   }
 }
 
-/**
- * Every browser target uses this proxy. Only a checked numeric IPv4 address is dialed, unless the
- * opt-in upstream proxy (HYPERFRAMES_CAPTURE_PROXY) is set, which then receives every request.
- */
+/** Every browser target uses this proxy; it dials a checked numeric IPv4 or the opt-in upstream proxy. */
 export async function startCaptureProxy(): Promise<{ url: string; close(): Promise<void> }> {
   const proxy = captureUpstreamProxy();
   const sockets = new Set<Socket>();

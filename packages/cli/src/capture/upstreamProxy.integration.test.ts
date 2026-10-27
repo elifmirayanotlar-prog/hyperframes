@@ -39,12 +39,20 @@ const DESTINATION = "assets.capture-fixture.com";
 
 type Received = { kind: "http" | "connect"; target: string; authorization?: string };
 const received: Received[] = [];
+type Delivered = { servername?: string; host?: string; path?: string };
+const delivered: Delivered[] = [];
 let refuseConnect = false;
 let stallConnect = false;
 
 // The destination is never listening on TCP: the fake upstream hands tunnels to it in-process.
 const destination = createHttpsServer({}, (req, res) => {
-  res.end(`secure ${(req.socket as TLSSocket).servername} ${req.headers.host} ${req.url}`);
+  const servername = (req.socket as TLSSocket).servername;
+  delivered.push({
+    servername: typeof servername === "string" ? servername : undefined,
+    host: req.headers.host,
+    path: req.url,
+  });
+  res.end("secure fixture");
 });
 destination.on("tlsClientError", () => {});
 
@@ -56,7 +64,8 @@ const upstream: Server = createServer((req: IncomingMessage, res) => {
   });
   if (req.url?.endsWith("/stall")) return;
   if (req.url?.endsWith("/refuse")) return void res.writeHead(403).end();
-  res.end(`plain ${req.headers.host} ${req.url}`);
+  delivered.push({ host: req.headers.host, path: req.url });
+  res.end("plain fixture");
 });
 const upstreamSockets = new Set<Socket>();
 upstream.on("connection", (socket: Socket) => {
@@ -110,6 +119,7 @@ describe("capture with the opt-in upstream proxy", () => {
 
   beforeEach(() => {
     received.length = 0;
+    delivered.length = 0;
     dialed.length = 0;
     refuseConnect = false;
     stallConnect = false;
@@ -137,7 +147,10 @@ describe("capture with the opt-in upstream proxy", () => {
 
   it("sends an HTTPS asset download through a CONNECT tunnel with TLS verified end to end", async () => {
     const response = await publicRequest(`https://${DESTINATION}/font.woff2?v=1`);
-    expect(await response.text()).toBe(`secure ${DESTINATION} ${DESTINATION} /font.woff2?v=1`);
+    expect(await response.text()).toBe("secure fixture");
+    expect(delivered).toEqual([
+      { servername: DESTINATION, host: DESTINATION, path: "/font.woff2?v=1" },
+    ]);
     expect(received).toEqual([
       { kind: "connect", target: `${DESTINATION}:443`, authorization: auth },
     ]);
@@ -147,7 +160,8 @@ describe("capture with the opt-in upstream proxy", () => {
 
   it("sends an HTTP asset download to the upstream in absolute form", async () => {
     const response = await publicRequest(`http://${DESTINATION}/logo.svg`);
-    expect(await response.text()).toBe(`plain ${DESTINATION} http://${DESTINATION}/logo.svg`);
+    expect(await response.text()).toBe("plain fixture");
+    expect(delivered).toEqual([{ host: DESTINATION, path: `http://${DESTINATION}/logo.svg` }]);
     expect(received).toEqual([
       { kind: "http", target: `http://${DESTINATION}/logo.svg`, authorization: auth },
     ]);
@@ -249,8 +263,11 @@ describe("capture with the opt-in upstream proxy", () => {
         const result = await proxyGet(port, `http://${DESTINATION}/index.html`);
         expect(result).toEqual({
           status: 200,
-          body: `plain ${DESTINATION} http://${DESTINATION}/index.html`,
+          body: "plain fixture",
         });
+        expect(delivered).toEqual([
+          { host: DESTINATION, path: `http://${DESTINATION}/index.html` },
+        ]);
         expect(received).toEqual([
           { kind: "http", target: `http://${DESTINATION}/index.html`, authorization: auth },
         ]);
@@ -274,7 +291,10 @@ describe("capture with the opt-in upstream proxy", () => {
           secure.on("error", reject);
           secure.write(`GET /app.js HTTP/1.1\r\nHost: ${DESTINATION}\r\nConnection: close\r\n\r\n`);
         });
-        expect(body).toContain(`secure ${DESTINATION} ${DESTINATION} /app.js`);
+        expect(body).toContain("secure fixture");
+        expect(delivered).toEqual([
+          { servername: DESTINATION, host: DESTINATION, path: "/app.js" },
+        ]);
         expect(received).toEqual([
           { kind: "connect", target: `${DESTINATION}:443`, authorization: auth },
         ]);
