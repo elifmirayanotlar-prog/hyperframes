@@ -32,7 +32,7 @@ describe.runIf(hasZscale)("a snapshot still of HDR footage", () => {
     writeFileSync(png, buffer!);
     const tags = spawnSync(
       "ffprobe",
-      ["-v", "error", "-show_entries", "stream=color_transfer", "-of", "csv=p=0", png],
+      ["-v", "error", "-show_entries", "stream=color_transfer", "-of", "csv=p=0", "--", png],
       { encoding: "utf8" },
     ).stdout.trim();
     expect(tags).not.toBe("arib-std-b67");
