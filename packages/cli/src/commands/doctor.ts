@@ -46,10 +46,8 @@ interface CheckResult {
 
 export { parseToolVersion };
 
-/** The ffmpeg build CI, the render images and the regression baselines run. */
 export const TESTED_FFMPEG_VERSION = "8.0.1";
 
-/** Loudness is set by the encoder build's own true peak, so only the tested build reproduces it. */
 export function ffmpegDoctorDetail(detail: string): string {
   return detail.includes(TESTED_FFMPEG_VERSION)
     ? `${detail} (tested build)`
