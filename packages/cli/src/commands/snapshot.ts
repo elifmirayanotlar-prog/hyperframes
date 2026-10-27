@@ -33,6 +33,7 @@ import { defineCommand } from "citty";
 import {
   existsSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   mkdirSync,
   rmSync,
@@ -147,7 +148,7 @@ export function formatSnapshotTimestamp(time: number): string {
   return `${Number(time.toFixed(3))}s`;
 }
 
-/** What reached the disk of the stills a run says it captured, as absolute paths; an empty or missing file is not a snapshot. */
+/** The captured stills that are on disk with bytes, as absolute paths; the rest are missing. */
 export function snapshotsOnDisk(projectDir: string, paths: string[], requested: number) {
   const written: string[] = [];
   const missing: string[] = [];
@@ -166,6 +167,26 @@ export function snapshotsOnDisk(projectDir: string, paths: string[], requested: 
 
 export const SNAPSHOT_IMAGE_NAME =
   /^(?:(?:frame-\d+-|ref-(?:\d+-)?)?at-[\d.]+s\.png|pair-(?:\d+-)?at-[\d.]+s\.jpg|(?:beat-\d+|seam-\d+-\d+)-at-[\d.]+s\.png|(?:contact-sheet|review-beats|review-phone)(?:-\d+)?\.jpg|review-seam-\d+\.jpg)$/;
+
+/** Removes the stills an earlier run left in the folder, so two runs never mix; returns what it removed. */
+export function clearEarlierStills(snapshotDir: string): string[] {
+  const cleared: string[] = [];
+  try {
+    for (const file of readdirSync(snapshotDir)) {
+      if (!SNAPSHOT_IMAGE_NAME.test(file)) continue;
+      const path = resolve(snapshotDir, file);
+      rmSync(path, { force: true });
+      cleared.push(path);
+    }
+  } catch {
+    // best-effort: capture proceeds even if the folder cannot be cleaned
+  }
+  return cleared;
+}
+
+export function clearedNote(count: number, snapshotDir: string): string {
+  return `cleared ${count} stills from an earlier run in ${resolve(snapshotDir)}`;
+}
 
 /** --keep names a still by its millisecond label, so two distinct times may not share one. */
 function assertDistinctKeepNames(times: number[]): void {
@@ -718,7 +739,7 @@ async function captureSnapshots(
       });
 
       if (duration <= 0 && !opts.at?.length) {
-        return { paths: [], requested: 0, warnings, pairSheetsSkipped: false };
+        return { paths: [], requested: 0, cleared: [], warnings, pairSheetsSkipped: false };
       }
 
       const readTiming = () =>
@@ -789,17 +810,9 @@ async function captureSnapshots(
 
       const snapshotDir = opts.outputDir ?? artifactDirectory(projectDir, "snapshots");
       mkdirSync(snapshotDir, { recursive: true });
-      try {
-        const { readdirSync } = await import("node:fs");
-        for (const file of opts.keep ? [] : readdirSync(snapshotDir)) {
-          if (SNAPSHOT_IMAGE_NAME.test(file)) {
-            const path = resolve(snapshotDir, file);
-            replaced.push(path);
-            rmSync(path, { force: true });
-          }
-        }
-      } catch {
-        /* best-effort — proceed even if cleanup fails */
+      if (!opts.keep) replaced.push(...clearEarlierStills(snapshotDir));
+      if (replaced.length > 0) {
+        log(`   ${c.warn("⚠")} ${clearedNote(replaced.length, snapshotDir)}`);
       }
 
       // Chrome-headless ignores programmatic <video>.currentTime writes, so
@@ -1131,6 +1144,7 @@ async function captureSnapshots(
   return {
     paths: savedPaths,
     requested,
+    cleared: replaced,
     warnings,
     pairSheetsSkipped: pairSheetFailure !== null,
     ...(review && reviewList
@@ -1152,6 +1166,8 @@ interface CapturedSnapshots {
   paths: string[];
   /** How many stills the run set out to capture. */
   requested: number;
+  /** Stills of an earlier run this one removed from the folder before capturing. */
+  cleared: string[];
   /** Why a frame may differ from the composition: shown on the console and in `--json`. */
   warnings: string[];
   /** --against wrote no pair sheets because sharp could not load. */
@@ -1223,6 +1239,14 @@ function snapshotEnvelope(
     ok: true,
     outputDir,
     frames,
+    ...(captured.cleared.length > 0
+      ? {
+          cleared: {
+            count: captured.cleared.length,
+            note: clearedNote(captured.cleared.length, outputDir),
+          },
+        }
+      : {}),
     contactSheets: extra.contactSheets.map((sheet) => resolve(sheet)),
     ...(captured.warnings.length > 0 ? { warnings: captured.warnings } : {}),
     ...(extra.describedPath ? { descriptions: extra.describedPath } : {}),
