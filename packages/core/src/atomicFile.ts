@@ -31,9 +31,15 @@ function traceWrite(filePath: string, content: string | Uint8Array): void {
   if (!out || !filePath.endsWith(".html")) return;
   const text = typeof content === "string" ? content : Buffer.from(content).toString("utf8");
   const hash = createHash("sha1").update(text).digest("hex").slice(0, 8);
-  const stack = (new Error().stack ?? "").split("\n").slice(2, 7).map((line) => line.trim());
+  const stack = (new Error().stack ?? "")
+    .split("\n")
+    .slice(2, 7)
+    .map((line) => line.trim());
   const file = basename(filePath);
-  fs.appendFileSync(out, `${JSON.stringify({ t: Date.now(), kind: "write", file, hash, size: text.length, stack })}\n`);
+  fs.appendFileSync(
+    out,
+    `${JSON.stringify({ t: Date.now(), kind: "write", file, hash, size: text.length, stack })}\n`,
+  );
 }
 
 /** Replace a file only after the complete sibling temp file is written. No mode: the default one. */

@@ -4,6 +4,9 @@ import { createHash } from "node:crypto";
 
 export const traceBench = (kind, data = {}) => {
   if (process.env.HF_WRITE_TRACE)
-    appendFileSync(process.env.HF_WRITE_TRACE, JSON.stringify({ t: Date.now(), kind, ...data }) + "\n");
+    appendFileSync(
+      process.env.HF_WRITE_TRACE,
+      JSON.stringify({ t: Date.now(), kind, ...data }) + "\n",
+    );
 };
 export const hashOf = (text) => createHash("sha1").update(String(text)).digest("hex").slice(0, 8);
