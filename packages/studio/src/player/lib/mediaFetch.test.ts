@@ -212,25 +212,129 @@ describe("mediaUrlSourceOptions", () => {
     }
   });
 
-  it("fails a request whose answer never comes as a stall after 8 s", async () => {
+  it("fails a body that sends nothing for 8 s as stalled, and aborts its fetch", async () => {
     vi.useFakeTimers();
+    let sentSignal: AbortSignal | undefined;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => endsOnAbort(init?.signal)),
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        sentSignal = init?.signal ?? undefined;
+        // Deaf to its signal: only the watchdog can end this wait.
+        const body = new ReadableStream<Uint8Array>({ pull: () => new Promise<void>(() => {}) });
+        return new Response(body, { status: 206 });
+      }),
     );
     try {
-      const failure = mediaUrlSourceOptions("thumbnail")
-        .fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=4096-" } })
+      const response = await mediaUrlSourceOptions("thumbnail").fetchFn(URL_WITH_PATH, {
+        headers: { Range: "bytes=4096-" },
+      });
+      const read = response
+        .body!.getReader()
+        .read()
         .catch((e: unknown) => e);
       await vi.advanceTimersByTimeAsync(8_000);
-      expect(await failure).toMatchObject({
-        name: "MediaFetchError",
-        code: "stalled",
-        start: 4096,
-      });
+      expect(await read).toMatchObject({ name: "MediaFetchError", code: "stalled", start: 4096 });
+      expect(sentSignal?.aborted).toBe(true);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("never times out a probe's body, however slow", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const body = new ReadableStream<Uint8Array>({
+          pull: (controller) =>
+            new Promise<void>((resolve) =>
+              setTimeout(() => {
+                controller.enqueue(new Uint8Array(8));
+                controller.close();
+                resolve();
+              }, 20_000),
+            ),
+        });
+        return new Response(body, { status: 206 });
+      }),
+    );
+    try {
+      const response = await mediaUrlSourceOptions("probe").fetchFn(URL_WITH_PATH, {
+        headers: { Range: "bytes=0-" },
+      });
+      const read = response.arrayBuffer();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect((await read).byteLength).toBe(8);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts every request made after its reader's reads were cancelled already aborted", async () => {
+    const seen: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.signal) seen.push(init.signal);
+        return new Response("", { status: 206 });
+      }),
+    );
+    const { fetchFn, cancelReads } = mediaUrlSourceOptions("thumbnail");
+    cancelReads();
+    await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=0-" } }).catch(() => {});
+    await Promise.resolve();
+    expect(seen[0]?.aborted).toBe(true);
+  });
+
+  it("unlinks every request from mediabunny's signal however it ends", async () => {
+    const answers: (() => Promise<Response>)[] = [
+      async () => new Response(new Uint8Array(4), { status: 206 }),
+      async () => Promise.reject(new TypeError("Failed to fetch")),
+      async () => new Response("", { status: 503 }),
+      async () => new Response(null, { status: 206 }),
+      async () =>
+        new Response(
+          new ReadableStream({ pull: (controller) => controller.error(new TypeError("network")) }),
+          { status: 206 },
+        ),
+      async () =>
+        new Response(
+          new ReadableStream({ pull: (controller) => controller.enqueue(new Uint8Array(4)) }),
+          { status: 206 },
+        ),
+    ];
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => answers[call++]!()),
+    );
+    const { fetchFn } = mediaUrlSourceOptions("thumbnail");
+    let added = 0;
+    let removed = 0;
+    for (const exit of ["ok", "rejected", "503", "no body", "body error", "cancel"]) {
+      const signal = new AbortController().signal;
+      const add = signal.addEventListener.bind(signal);
+      const remove = signal.removeEventListener.bind(signal);
+      signal.addEventListener = (...args: Parameters<typeof add>) => (added++, add(...args));
+      signal.removeEventListener = (...args: Parameters<typeof remove>) => (
+        removed++, remove(...args)
+      );
+      const response = await fetchFn(URL_WITH_PATH, {
+        headers: { Range: "bytes=0-" },
+        signal,
+      }).catch(() => null);
+      const reader = response?.body?.getReader();
+      if (exit === "cancel") {
+        await reader!.read();
+        await reader!.cancel();
+      } else if (reader) {
+        await (async () => {
+          for (;;) if ((await reader.read()).done) return;
+        })().catch(() => {});
+      }
+    }
+
+    expect({ added, removed }).toEqual({ added: 6, removed: 6 });
   });
 
   it("never cuts off a slow response that keeps sending", async () => {
