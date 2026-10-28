@@ -29,23 +29,24 @@ export async function runWithWatchdog<T>(
   ]);
 }
 
-export function createCaptureWatchdog(deadlineMs: number | undefined): CaptureWatchdog {
+const DEADLINE_UNDER_AGENT_SHELL_LIMITS_MS = 4 * 60_000;
+
+export function createCaptureWatchdog(
+  deadlineMs: number = DEADLINE_UNDER_AGENT_SHELL_LIMITS_MS,
+): CaptureWatchdog {
   let browser: CaptureWatchdogBrowser | undefined;
   let didExpire = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   let resolveDeadline: () => void = () => {};
 
   const promise = new Promise<void>((resolve) => {
     resolveDeadline = resolve;
   });
 
-  if (deadlineMs !== undefined) {
-    timer = setTimeout(() => {
-      didExpire = true;
-      resolveDeadline();
-      void browser?.close().catch(() => undefined);
-    }, deadlineMs);
-  }
+  const timer = setTimeout(() => {
+    didExpire = true;
+    resolveDeadline();
+    void browser?.close().catch(() => undefined);
+  }, deadlineMs);
 
   return {
     expired: () => didExpire,
@@ -58,7 +59,7 @@ export function createCaptureWatchdog(deadlineMs: number | undefined): CaptureWa
       if (browser === closedBrowser) browser = undefined;
     },
     dispose: () => {
-      if (timer !== undefined) clearTimeout(timer);
+      clearTimeout(timer);
     },
   };
 }
