@@ -30,6 +30,9 @@ export class MediaFetchError extends Error {
 }
 
 const MAX_RETRIES = 2;
+// A thumbnail read waiting this long for a byte is stalled. Three such waits plus mediabunny's 0.5 s and
+// 1 s retry delays (25.5 s) end inside the 30 s thumbnailLoadTimeoutMs, so a dead response fails typed.
+const STALL_MS = 8_000;
 // mediabunny asks for `bytes=N-` and cancels once it has its target, by when a local server has
 // streamed megabytes past it. Bounded, a short answer makes mediabunny ask again from where it stopped,
 // but only if it read the file's size from a Content-Range: see rangesReadable.
@@ -73,24 +76,71 @@ function networkCode(error: unknown): string {
 const typedFailure = (reader: MediaReader, error: unknown, start: number) =>
   isAbort(error) ? error : new MediaFetchError(reader, null, networkCode(error), start);
 
+/**
+ * One request's own abort, followed from mediabunny's signal and the reader's cancel. A thumbnail
+ * read that waits STALL_MS for its answer or its next bytes aborts it as stalled: a stalled
+ * response ignores every other signal, and mediabunny would wait on it for good.
+ */
+function watchedRequest(reader: MediaReader, parents: readonly AbortSignal[]) {
+  const controller = new AbortController();
+  let stalled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const unlinks = parents.map((parent) => {
+    const follow = () => controller.abort(parent.reason);
+    parent.addEventListener("abort", follow, { once: true });
+    return () => parent.removeEventListener("abort", follow);
+  });
+  // Every way a request ends calls this, so a reader's long-lived cancel signal keeps no listener per request.
+  const done = () => {
+    clearTimeout(timer);
+    for (const unlink of unlinks.splice(0)) unlink();
+  };
+  controller.signal.addEventListener("abort", done, { once: true });
+  for (const parent of parents) if (parent.aborted) controller.abort(parent.reason);
+  const wait = <T>(pending: Promise<T>): Promise<T> => {
+    if (reader !== "thumbnail") return pending;
+    return new Promise<T>((resolve, reject) => {
+      timer = setTimeout(() => {
+        stalled = true;
+        const reason = new DOMException(`No bytes for ${STALL_MS} ms`, "TimeoutError");
+        reject(reason);
+        controller.abort(reason);
+      }, STALL_MS);
+      void pending.then(resolve, reject).finally(() => clearTimeout(timer));
+    });
+  };
+  const failure = (error: unknown, start: number) =>
+    stalled
+      ? new MediaFetchError(reader, null, "stalled", start)
+      : typedFailure(reader, error, start);
+  return { signal: controller.signal, wait, done, failure };
+}
+
+type WatchedRequest = ReturnType<typeof watchedRequest>;
+
 /** The body, failing a broken read with a MediaFetchError: mediabunny rethrows a body error as-is. */
 function typedBody(
-  reader: MediaReader,
   body: ReadableStream<Uint8Array>,
   start: number,
+  request: WatchedRequest,
 ): ReadableStream<Uint8Array> {
   const source = body.getReader();
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const { done, value } = await source.read();
-        if (done) return controller.close();
-        controller.enqueue(value);
+        const { done, value } = await request.wait(source.read());
+        if (!done) return controller.enqueue(value);
+        request.done();
+        controller.close();
       } catch (error) {
-        controller.error(typedFailure(reader, error, start));
+        request.done();
+        controller.error(request.failure(error, start));
       }
     },
-    cancel: (reason) => source.cancel(reason),
+    cancel: (reason) => {
+      request.done();
+      return source.cancel(reason);
+    },
   });
 }
 
@@ -100,23 +150,29 @@ async function typedFetch(
   input: RequestInfo | URL,
   sent: RequestInit,
   asked: number,
+  request: WatchedRequest,
 ): Promise<Response> {
   let response: Response;
   try {
     // oxlint-disable-next-line no-restricted-globals -- a media read, on the media's sockets like mediabunny's own
-    response = await fetch(input, sent);
+    response = await request.wait(fetch(input, { ...sent, signal: request.signal }));
   } catch (error) {
-    throw typedFailure(reader, error, asked);
+    request.done();
+    throw request.failure(error, asked);
   }
-  if (!response.ok) throw new MediaFetchError(reader, response.status, null, asked);
-  return response;
+  if (response.ok) return response;
+  request.done();
+  throw new MediaFetchError(reader, response.status, null, asked);
 }
 
 /** The answer with its body typed; a 200 answers from byte 0, whatever start was asked. */
-function typedResponse(reader: MediaReader, response: Response, asked: number): Response {
-  if (!response.body) return response;
+function typedResponse(response: Response, asked: number, request: WatchedRequest): Response {
+  if (!response.body) {
+    request.done();
+    return response;
+  }
   const { status, statusText, headers } = response;
-  const body = typedBody(reader, response.body, status === 206 ? asked : 0);
+  const body = typedBody(response.body, status === 206 ? asked : 0, request);
   return new Response(body, { status, statusText, headers });
 }
 
@@ -129,18 +185,20 @@ export function mediaUrlSourceOptions(reader: MediaReader) {
   // same start again (a server that ignores Range, a region that keeps failing) uses it up, whatever else
   // this reader reads meanwhile. A 200 answers from byte 0, whatever start was asked.
   const failures = new Map<number | null, number>();
-  // Disposing an Input leaves a read stalled mid-body waiting for good; aborting its fetch ends it.
+  // Disposing an Input leaves a read stalled mid-body waiting until the stall watchdog; this ends it now.
   const reads = new AbortController();
   // Thumbnail ranges are bounded only after this reader read a Content-Range, and never once one was hidden.
   let ranges: "unknown" | "readable" | "hidden" = reader === "thumbnail" ? "unknown" : "hidden";
   const fetchFn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const bounded = ranges === "readable" ? boundedRange(init) : init;
-    const signals = [reads.signal, ...(init?.signal ? [init.signal] : [])];
-    const sent = { ...bounded, signal: AbortSignal.any(signals) };
+    const sent = ranges === "readable" ? boundedRange(init) : init;
     const asked = Number(rangeStart(sent, true) ?? 0);
-    const response = await typedFetch(reader, input, sent, asked);
+    const request = watchedRequest(
+      reader,
+      init?.signal ? [reads.signal, init.signal] : [reads.signal],
+    );
+    const response = await typedFetch(reader, input, sent ?? {}, asked, request);
     if (ranges !== "hidden") ranges = rangesReadable(sent, response) ? "readable" : "hidden";
-    return typedResponse(reader, response, asked);
+    return typedResponse(response, asked, request);
   };
   // mediabunny passes 1 for every failed mid-stream read, so it counts here instead.
   const getRetryDelay = (_previousAttempts: number, error: unknown): number | null => {

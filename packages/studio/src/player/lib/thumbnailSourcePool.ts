@@ -17,8 +17,6 @@ interface OpenedSource {
 export interface ThumbnailSource extends OpenedSource {
   /** Ends this job's use. A failed job retires the reader, so the next job opens a fresh one. */
   release(failed: boolean): void;
-  /** Disposes the reader now, whoever still uses it, failing their pending reads: for a reader stuck in one. */
-  abandon(): void;
 }
 
 interface PooledSource {
@@ -140,9 +138,8 @@ export async function acquireThumbnailSource(
       dispose(source, entry);
     }
   };
-  const abandon = () => dispose(source, entry);
   try {
-    return { ...(await untilAborted(entry.opened, signal)), release, abandon };
+    return { ...(await untilAborted(entry.opened, signal)), release };
   } catch (error) {
     release(!isAbortError(error));
     throw error;

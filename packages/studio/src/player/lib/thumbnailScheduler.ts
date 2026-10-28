@@ -494,9 +494,10 @@ export class ThumbnailScheduler {
       const timeout = setTimeout(() => {
         if (settled) return;
         settled = true;
-        const message = `Thumbnail load timed out after ${this.budgets.thumbnailLoadTimeoutMs}ms`;
-        controller.abort(new DOMException(message, "TimeoutError"));
-        reject(new Error(message));
+        controller.abort();
+        reject(
+          new Error(`Thumbnail load timed out after ${this.budgets.thumbnailLoadTimeoutMs}ms`),
+        );
       }, this.budgets.thumbnailLoadTimeoutMs);
 
       load.then(

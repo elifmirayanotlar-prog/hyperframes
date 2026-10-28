@@ -159,6 +159,133 @@ describe("mediaUrlSourceOptions", () => {
     }
   });
 
+  // Like fetch, a stub whose waits end when the request's signal aborts, and not before.
+  const endsOnAbort = (signal: AbortSignal | null | undefined) =>
+    new Promise<never>((_, reject) =>
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true }),
+    );
+
+  it("gives up on a response that sends no bytes, as a stall, inside the load timeout", async () => {
+    vi.useFakeTimers();
+    const requests: (string | null)[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push(new Headers(init?.headers).get("Range"));
+        const body = new ReadableStream<Uint8Array>({ pull: () => endsOnAbort(init?.signal) });
+        const headers = { "Content-Range": "bytes 0-999999/1000000", "Content-Length": "1000000" };
+        return new Response(body, { status: 206, headers });
+      }),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const mb = await import("mediabunny");
+    const runnerListeners = process.listeners("unhandledRejection");
+    process.removeAllListeners("unhandledRejection");
+    process.on("unhandledRejection", () => {});
+    try {
+      const input = new mb.Input({
+        source: new mb.UrlSource(URL_WITH_PATH, mediaUrlSourceOptions("thumbnail")),
+        formats: mb.ALL_FORMATS,
+      });
+      let outcome: unknown = "pending";
+      void input.getDurationFromMetadata().then(
+        () => (outcome = "resolved"),
+        (error: unknown) => (outcome = error),
+      );
+      // Three silent waits of 8 s, with mediabunny's 0.5 s and 1 s retry delays between them.
+      await vi.advanceTimersByTimeAsync(25_400);
+      expect(outcome).toBe("pending");
+      await vi.advanceTimersByTimeAsync(200);
+      expect(outcome).toMatchObject({
+        name: "MediaFetchError",
+        message: "thumbnail range fetch failed: network stalled after 2 retries",
+      });
+      expect(requests).toHaveLength(3);
+      input.dispose();
+    } finally {
+      vi.useRealTimers();
+      // mediabunny rethrows the failed read-ahead a turn later; keep it out of the next test.
+      await new Promise(setImmediate);
+      await new Promise(setImmediate);
+      process.removeAllListeners("unhandledRejection");
+      for (const listener of runnerListeners) process.on("unhandledRejection", listener);
+    }
+  });
+
+  it("fails a request whose answer never comes as a stall after 8 s", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => endsOnAbort(init?.signal)),
+    );
+    try {
+      const failure = mediaUrlSourceOptions("thumbnail")
+        .fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=4096-" } })
+        .catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(await failure).toMatchObject({
+        name: "MediaFetchError",
+        code: "stalled",
+        start: 4096,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never cuts off a slow response that keeps sending", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        let chunks = 0;
+        const body = new ReadableStream<Uint8Array>({
+          // Like fetch, the body fails if the request is aborted.
+          start: (controller) =>
+            init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason)),
+          pull: (controller) =>
+            new Promise<void>((resolve) =>
+              setTimeout(() => {
+                if (++chunks > 10) controller.close();
+                else controller.enqueue(new Uint8Array(1024));
+                resolve();
+              }, 2_000),
+            ),
+        });
+        return new Response(body, { status: 206 });
+      }),
+    );
+    try {
+      const response = await mediaUrlSourceOptions("thumbnail").fetchFn(URL_WITH_PATH, {
+        headers: { Range: "bytes=0-" },
+      });
+      const read = response.arrayBuffer();
+      await vi.advanceTimersByTimeAsync(24_000);
+      expect((await read).byteLength).toBe(10 * 1024);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("aborts a request when mediabunny aborts its own signal", async () => {
+    const seen: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.signal) seen.push(init.signal);
+        return new Response("", { status: 206 });
+      }),
+    );
+    const stop = new AbortController();
+    await mediaUrlSourceOptions("thumbnail").fetchFn(URL_WITH_PATH, {
+      headers: { Range: "bytes=0-" },
+      signal: stop.signal,
+    });
+    expect(seen[0]?.aborted).toBe(false);
+    stop.abort();
+    expect(seen[0]?.aborted).toBe(true);
+  });
+
   it("counts mid-stream read failures, which always arrive as attempt 1", () => {
     const { getRetryDelay } = mediaUrlSourceOptions("thumbnail");
     const readError = new TypeError("network error");

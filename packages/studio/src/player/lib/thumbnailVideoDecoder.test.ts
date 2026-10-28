@@ -566,6 +566,8 @@ describe("decodeVideoThumbnail's shared source", () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(dispose).toHaveBeenCalledTimes(1);
       expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+      // Disposing alone leaves a stalled fetch waiting; its reads are cancelled too.
+      expect(cancelledReads[0]).toHaveBeenCalledOnce();
       // A closed reader has left the pool: the next clip opens a live one.
       await expect(decodeVideoThumbnail(clip(12), signal, budgets)).resolves.toBeDefined();
       expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
@@ -652,62 +654,6 @@ describe("decodeVideoThumbnail's shared source", () => {
     expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
   });
 
-  // A read that never returns until its reader is disposed, like a response stalled mid-body.
-  function stallUntilDisposed() {
-    const stalled = new Promise<never>((_, reject) =>
-      dispose.mockImplementationOnce(() => reject(new Error("Input disposed"))),
-    );
-    canvasesAtTimestamps.mockImplementationOnce(async function* () {
-      yield await stalled;
-    });
-  }
-
-  it("drops a reader stuck in a read when its job times out, and the next clip opens afresh", async () => {
-    stallUntilDisposed();
-    const controller = new AbortController();
-    const stuck = decodeVideoThumbnail(clip(0), controller.signal);
-    await vi.waitFor(() => expect(canvasesAtTimestamps).toHaveBeenCalledOnce());
-    controller.abort(new DOMException("Thumbnail load timed out", "TimeoutError"));
-
-    await expect(stuck).rejects.toThrow("Input disposed");
-    expect(dispose).toHaveBeenCalledTimes(1);
-    // Disposing alone leaves a stalled fetch waiting; its reads are cancelled too.
-    expect(cancelledReads[0]).toHaveBeenCalledOnce();
-    recordDecodes([]);
-    await expect(decodeVideoThumbnail(clip(0), signal)).resolves.toBeDefined();
-    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
-  });
-
-  it("drops a reader a cancelled job is still stuck in once the load timeout has passed", async () => {
-    vi.useFakeTimers();
-    try {
-      stallUntilDisposed();
-      const budgets = resolveTimelineViewportBudgets({ thumbnailLoadTimeoutMs: 5_000 });
-      const controller = new AbortController();
-      const stuck = decodeVideoThumbnail(clip(0), controller.signal, budgets);
-      stuck.catch(() => {});
-      await vi.waitFor(() => expect(canvasesAtTimestamps).toHaveBeenCalledOnce());
-      controller.abort();
-      await vi.advanceTimersByTimeAsync(4_999);
-      expect(dispose).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(1);
-      expect(dispose).toHaveBeenCalledTimes(1);
-      await expect(stuck).rejects.toThrow("Input disposed");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("leaves the reader alone when a job's signal aborts after the job ended", async () => {
-    recordDecodes([]);
-    const controller = new AbortController();
-    await decodeVideoThumbnail(clip(0), controller.signal);
-    controller.abort(new DOMException("Thumbnail load timed out", "TimeoutError"));
-    await decodeVideoThumbnail(clip(6), signal);
-    expect(dispose).not.toHaveBeenCalled();
-    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
-  });
-
   it("keeps the reader when a clip's own decode yields no frames", async () => {
     canvasesAtTimestamps.mockImplementationOnce(async function* (
       timestamps: AsyncIterable<number>,
@@ -722,15 +668,55 @@ describe("decodeVideoThumbnail's shared source", () => {
   });
 
   it("keeps the reader of a clip scrolled away from, for the next clip", async () => {
-    const controller = new AbortController();
-    getKeyPacket.mockImplementationOnce(async () => (controller.abort(), null));
-    recordDecodes([]);
-    await expect(decodeVideoThumbnail(clip(0), controller.signal)).rejects.toMatchObject({
-      name: "AbortError",
+    vi.useFakeTimers();
+    try {
+      const budgets = resolveTimelineViewportBudgets({ thumbnailSourceIdleMs: 60_000 });
+      const controller = new AbortController();
+      getKeyPacket.mockImplementationOnce(async () => (controller.abort(), null));
+      recordDecodes([]);
+      await expect(decodeVideoThumbnail(clip(0), controller.signal, budgets)).rejects.toMatchObject(
+        {
+          name: "AbortError",
+        },
+      );
+      // Past a load timeout: nothing a cancel left behind may close the reader.
+      await vi.advanceTimersByTimeAsync(31_000);
+      await decodeVideoThumbnail(clip(6), signal, budgets);
+      expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+      expect(dispose).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the reader, and the clip decoding on it, when another clip on it times out", async () => {
+    let unstick!: () => void;
+    const stuck = new Promise<void>((resolve) => (unstick = resolve));
+    let go!: () => void;
+    const healthy = new Promise<void>((resolve) => (go = resolve));
+    canvasesAtTimestamps.mockImplementationOnce(async function* () {
+      yield await stuck;
     });
-    await decodeVideoThumbnail(clip(6), signal);
-    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+    canvasesAtTimestamps.mockImplementationOnce(async function* (
+      timestamps: AsyncIterable<number>,
+    ) {
+      for await (const _time of timestamps) {
+        await healthy;
+        yield { canvas: document.createElement("canvas") };
+      }
+    });
+    const timedOut = new AbortController();
+    const first = decodeVideoThumbnail(clip(0), timedOut.signal);
+    first.catch(() => {});
+    const second = decodeVideoThumbnail(clip(6), signal);
+    await vi.waitFor(() => expect(canvasesAtTimestamps).toHaveBeenCalledTimes(2));
+    timedOut.abort(new DOMException("Thumbnail load timed out", "TimeoutError"));
+    go();
+
+    await expect(second).resolves.toMatchObject({ value: { kind: "filmstrip" } });
     expect(dispose).not.toHaveBeenCalled();
+    unstick();
+    await expect(first).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("drops a reader whose reads gave up, so the next clip retries on a fresh one", async () => {
