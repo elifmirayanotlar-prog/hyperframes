@@ -389,7 +389,7 @@ const REMOTE_VIDEO_DIR = join(tmpdir(), "hyperframes-snapshot-media");
 /** A local copy of a remote clip, since an FFmpeg built without network protocols (the Desktop app's) reads no URL. */
 export async function remoteVideoInput(url: string, download = downloadToTemp): Promise<string> {
   try {
-    return await download(url, REMOTE_VIDEO_DIR);
+    return await download(url, REMOTE_VIDEO_DIR, FFMPEG_EXTRACT_TIMEOUT_MS);
   } catch {
     return url;
   }
