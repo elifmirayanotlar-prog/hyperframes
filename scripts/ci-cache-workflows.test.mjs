@@ -13,26 +13,26 @@ const workflows = readdirSync(workflowsDir)
 const events = (on) =>
   typeof on === "string" ? [on] : Array.isArray(on) ? on : Object.keys(on ?? {});
 
+const dispatchOnly = ["fast-video-validation.yml"];
+const ungatedCacheWrites = (list) =>
+  list
+    .filter(({ file }) => !dispatchOnly.includes(file))
+    .flatMap(({ file, doc }) =>
+      Object.entries(doc.jobs ?? {}).flatMap(([name, job]) =>
+        (job.steps ?? [])
+          .map((step) => String(step.with?.["cache-to"] ?? ""))
+          .filter((to) => to.includes("type=gha") && !to.includes("github.event_name == 'push'"))
+          .map(() => `${file} ${name}`),
+      ),
+    );
+
 // The Actions cache holds 10 GB; per-PR image exports evict the bun cache and leave installs cold.
 test("only pushes to main write image layers to the Actions cache", () => {
-  const dispatchOnly = ["fast-video-validation.yml"];
   for (const file of dispatchOnly) {
     const { doc } = workflows.find((w) => w.file === file);
     assert.deepEqual(events(doc.on), ["workflow_dispatch"], `${file} must stay dispatch-only`);
   }
-  const ungated = [];
-  for (const { file, doc } of workflows) {
-    if (dispatchOnly.includes(file)) continue;
-    for (const [name, job] of Object.entries(doc.jobs ?? {})) {
-      for (const step of job.steps ?? []) {
-        const cacheTo = String(step.with?.["cache-to"] ?? "");
-        if (cacheTo.includes("type=gha") && !cacheTo.includes("github.event_name == 'push'")) {
-          ungated.push(`${file} ${name}`);
-        }
-      }
-    }
-  }
-  assert.deepEqual(ungated, []);
+  assert.deepEqual(ungatedCacheWrites(workflows), []);
 });
 
 test("preflight installs without downloading ffmpeg or Chrome", () => {
