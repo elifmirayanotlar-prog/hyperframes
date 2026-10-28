@@ -8,7 +8,13 @@ import {
 import { analyzeSignal, type AnalyzeOptions } from "./analyze.js";
 import { decodeAudio, probeAudio, type AudioStreamInfo } from "./decode.js";
 import type { AudioTarget, Placement } from "./targets.js";
-import { cacheKindAnalysis, kindCacheFile, readKindCache } from "./kindCache.js";
+import {
+  cacheKindAnalysis,
+  kindCacheFile,
+  kindSourceIdentity,
+  readKindCache,
+  type KindCacheSource,
+} from "./kindCache.js";
 
 export interface AudioItem {
   file: string;
@@ -131,30 +137,55 @@ async function skippedPeak(target: AudioTarget, kept: AudioSignal, stream: Audio
   ];
 }
 
+function coversPart({ window, clip }: AudioTarget): boolean {
+  return (
+    !!window &&
+    !!clip &&
+    (window.from > clip.from || window.from + window.seconds < clip.from + clip.seconds)
+  );
+}
+
+function clipKindRate(target: AudioTarget, stream: AudioStreamInfo): number {
+  const seconds = Math.min(target.clip!.seconds, Math.max(0, stream.duration - target.clip!.from));
+  const bytes = seconds * stream.sampleRate * stream.channels * 4;
+  return bytes <= KIND_DECODE_BYTES
+    ? stream.sampleRate
+    : Math.min(stream.sampleRate, KIND_SAMPLE_RATE);
+}
+
+async function clipKindSignal(
+  target: AudioTarget,
+  stream: AudioStreamInfo,
+  sampleRate: number,
+  windowSignal?: AudioSignal,
+): Promise<AudioSignal | undefined> {
+  if (windowSignal) return windowSignal;
+  const seconds = Math.min(target.clip!.seconds, Math.max(0, stream.duration - target.clip!.from));
+  if (seconds * sampleRate * stream.channels * 4 > KIND_DECODE_BYTES)
+    throw new Error("whole clip exceeds the kind analysis decode limit");
+  return (await decodeAudio(target.path, target.clip!, stream, { sampleRate }))?.signal;
+}
+
 async function clipKind(
   target: AudioTarget,
   request: AnalyzeOptions,
   stream: AudioStreamInfo,
-  cacheDir?: string,
+  cache?: KindCacheSource,
+  windowSignal?: AudioSignal,
 ) {
-  const sampleRate = Math.min(stream.sampleRate, KIND_SAMPLE_RATE);
-  const file = cacheDir ? kindCacheFile(cacheDir, target, request, sampleRate) : null;
-  const cached = file ? readKindCache(file) : null;
+  const sampleRate = windowSignal ? stream.sampleRate : clipKindRate(target, stream);
+  const file = cache ? kindCacheFile(cache.dir, target, request, sampleRate, cache.identity) : null;
+  const cached = readKindCache(file);
   if (cached) return cached;
-  const seconds = Math.min(target.clip!.seconds, Math.max(0, stream.duration - target.clip!.from));
-  if (seconds * sampleRate * stream.channels * 4 > KIND_DECODE_BYTES)
-    throw new Error("whole clip exceeds the kind analysis decode limit");
-  const decoded = await decodeAudio(target.path, target.clip!, stream, {
-    sampleRate,
-  });
-  if (!decoded) return null;
-  const analysis = await analyzeSignal(decoded.signal, {
+  const signal = await clipKindSignal(target, stream, sampleRate, windowSignal);
+  if (!signal) return null;
+  const analysis = await analyzeSignal(signal, {
     ...request,
     capabilities: ["kind"],
     fileOffset: target.clip!.from,
-    context: undefined,
+    context: windowSignal ? request.context : undefined,
   });
-  if (file && cacheDir && file === kindCacheFile(cacheDir, target, request, sampleRate))
+  if (file && cache && file === kindCacheFile(cache.dir, target, request, sampleRate))
     cacheKindAnalysis(file, analysis);
   return analysis;
 }
@@ -165,7 +196,7 @@ async function analyzeWindow(
   signal: AudioSignal,
   request: AnalyzeOptions,
   stream: AudioStreamInfo,
-  cacheDir?: string,
+  cache?: KindCacheSource,
 ) {
   const kindApart = request.capabilities.includes("kind") && target.clip !== undefined;
   if (!kindApart) return analyzeSignal(signal, request);
@@ -175,7 +206,7 @@ async function analyzeWindow(
   });
   let kind;
   try {
-    kind = await clipKind(target, request, stream, cacheDir);
+    kind = await clipKind(target, request, stream, cache, coversPart(target) ? undefined : signal);
     if (!kind) throw new Error("no audio stream");
   } catch (error) {
     kind = await analyzeSignal(signal, { ...request, capabilities: ["kind"] });
@@ -204,6 +235,7 @@ async function analyzeTarget(
   if (problem) return { ...item, error: problem };
   const stream = await probeAudio(target.path);
   if (!stream) return { ...item, error: "no audio stream" };
+  const cache = cacheDir ? { dir: cacheDir, identity: kindSourceIdentity(target.path) } : undefined;
   const { from, read, context } = decodeSpan(target, stream);
   const decoded = await decodeAudio(target.path, read, stream);
   if (!decoded) return { ...item, error: "no audio stream" };
@@ -212,7 +244,7 @@ async function analyzeTarget(
     decoded.signal,
     { ...request, fileOffset: from, context },
     stream,
-    cacheDir,
+    cache,
   );
   return {
     ...item,

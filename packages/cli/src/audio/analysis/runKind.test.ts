@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,6 +40,18 @@ describe("clip kind isolation", () => {
     expect(decodeAudio).toHaveBeenNthCalledWith(2, path, target.clip, stream, {
       sampleRate: 16000,
     });
+  });
+
+  it("reuses the native-rate window signal when it covers the whole clip", async () => {
+    const whole = { ...target, window: target.clip };
+    await analyzeTargets([whole], request);
+    expect(decodeAudio).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the native rate for clip evidence that fits the budget", async () => {
+    const short = { ...target, clip: { from: 0, seconds: 60 } };
+    await analyzeTargets([short], request);
+    expect(decodeAudio).toHaveBeenNthCalledWith(2, path, short.clip, stream, { sampleRate: 48000 });
   });
 
   it("does not attempt an oversized whole-clip decode", async () => {
@@ -91,6 +103,16 @@ describe("clip kind isolation", () => {
     );
     expect(pinned.items[0]?.kind).toBeNull();
     expect(pinned.items[0]?.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("does not cache a reused full-window signal under a source changed during decode", async () => {
+    const cache = join(dir, "changed-full-decode");
+    vi.mocked(decodeAudio).mockImplementationOnce(async () => {
+      writeFileSync(path, "source replaced while decoding full window");
+      return { signal, stream };
+    });
+    await analyzeTargets([{ ...target, window: target.clip }], request, false, cache);
+    expect(existsSync(cache)).toBe(false);
   });
 
   it("does not cache evidence if the source changes during its decode", async () => {

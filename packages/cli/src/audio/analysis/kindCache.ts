@@ -34,20 +34,27 @@ function isKindGuess(value: unknown): value is KindGuess {
   );
 }
 
+export interface KindCacheSource {
+  dir: string;
+  identity: string;
+}
+
+export function kindSourceIdentity(path: string): string {
+  const { size, mtimeMs, ctimeMs, ino } = statSync(path);
+  return JSON.stringify({ size, mtimeMs, ctimeMs, ino });
+}
+
 export function kindCacheFile(
   dir: string,
   target: AudioTarget,
   request: AnalyzeOptions,
   sampleRate: number,
+  source = kindSourceIdentity(target.path),
 ): string {
-  const { size, mtimeMs, ctimeMs, ino } = statSync(target.path);
   const key = JSON.stringify({
     version: CACHE_VERSION,
     path: target.path,
-    size,
-    mtimeMs,
-    ctimeMs,
-    ino,
+    source,
     clip: target.clip,
     sampleRate,
     quality: request.quality,
@@ -57,7 +64,8 @@ export function kindCacheFile(
   return join(dir, `${createHash("sha256").update(key).digest("hex")}.json`);
 }
 
-export function readKindCache(file: string): Analysis | null {
+export function readKindCache(file: string | null): Analysis | null {
+  if (file === null) return null;
   let value: unknown;
   try {
     value = JSON.parse(readFileSync(file, "utf8"));
