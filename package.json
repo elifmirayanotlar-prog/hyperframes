@@ -67,6 +67,7 @@
     "lint:registry-items": "node scripts/lint-registry-items.mjs"
   },
   "dependencies": {
+    "tar": "7.5.21",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
