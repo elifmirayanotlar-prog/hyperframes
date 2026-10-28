@@ -78,7 +78,7 @@ export function useEditHistoryActions({
     [writeProjectFile],
   );
 
-  const applyStep = useCallback(
+  const apply = useCallback(
     async (direction: "undo" | "redo") => {
       const noun = direction === "undo" ? "Undo" : "Redo";
       if (direction === "undo" && cancelNewestStudioWaitingPress()) return;
@@ -153,13 +153,8 @@ export function useEditHistoryActions({
     ],
   );
 
-  // The preview is about to change from the key, not from the reload the step later asks for.
-  const apply = useCallback(
-    (direction: "undo" | "redo") => whileScriptWrites(() => applyStep(direction)),
-    [applyStep],
-  );
-  const undo = useCallback(() => apply("undo"), [apply]);
-  const redo = useCallback(() => apply("redo"), [apply]);
+  const undo = useCallback(() => whileScriptWrites(() => apply("undo")), [apply]);
+  const redo = useCallback(() => whileScriptWrites(() => apply("redo")), [apply]);
   return useMemo(() => ({ undo, redo }), [undo, redo]);
 }
 
