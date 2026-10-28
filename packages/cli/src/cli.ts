@@ -50,6 +50,10 @@ import { existsSync } from "node:fs";
 import { VERSION } from "./version.js";
 
 let argv = process.argv.slice(2);
+if (argv[0] === "help") {
+  process.argv = [...process.argv.slice(0, 2), ...argv.slice(1), "--help"];
+  argv = process.argv.slice(2);
+}
 const commandArg = argv[0];
 const rootVersionRequested =
   commandArg === "--version" ||
@@ -89,7 +93,8 @@ import type { ArgsDef, CommandDef } from "citty";
 import { getRunId } from "./telemetry/runId.js";
 import { reportCommandFailure, trackCommandFailures } from "./utils/command-failure-tracking.js";
 import { isRenderSucceeded } from "./utils/render-success-state.js";
-import { resolveCommandUsage } from "./utils/commandUsageResolution.js";
+import { resolveCommandUsage, type ResolvedCommandUsage } from "./utils/commandUsageResolution.js";
+import { closestMatch } from "./utils/didYouMean.js";
 import { isDevMode } from "./utils/env.js";
 import {
   CliResultSignal,
@@ -347,13 +352,17 @@ async function finalizeCli(result: CommandResult): Promise<void> {
     runId,
   });
   // No network wait: the exit handler's flushSync() delivers what is still queued.
+  if (result.kind !== "usage_error") printNotices();
+  process.exitCode = exitCode;
+}
+
+function printNotices(): void {
   if (!hasJsonFlag) {
     _printUpdateNotice?.();
     _printStalePinNotice?.();
   }
   _printSkillsUpdateNotice?.();
   if (_appHistoryNotice) process.stderr.write(`◇  ${_appHistoryNotice}\n`);
-  process.exitCode = exitCode;
 }
 
 registerRootExitRequester((exitCode) => {
@@ -512,26 +521,46 @@ process.on("unhandledRejection", (reason) => {
 // Lazy-load help renderer — avoids allocating help data on non-help invocations
 async function showUsage<T extends ArgsDef>(
   cmd: CommandDef<T>,
-  parent?: CommandDef<T>,
+  parent: CommandDef<T> | undefined,
+  print: (text: string) => void,
 ): Promise<void> {
   const { showUsage: impl } = await import("./help.js");
-  return impl(cmd as CommandDef, parent as CommandDef | undefined);
+  return impl(cmd as CommandDef, parent as CommandDef | undefined, print);
 }
 
-async function showRequestedUsage(): Promise<void> {
+// Prints the suggestion and the group's usage on stderr; the caller throws the returned error.
+async function unknownCommandError(requested: ResolvedCommandUsage): Promise<CliUsageError> {
+  const word = requested.unknownSubcommand ?? "";
+  const group = ["hyperframes", ...requested.path].join(" ");
+  const declared = requested.command.subCommands;
+  const subCommands = typeof declared === "function" ? await declared() : await declared;
+  const match = closestMatch(word, Object.keys(subCommands ?? {}));
+  console.error(`Unknown command: ${word}`);
+  if (match) console.error(`Did you mean '${group} ${match}'?`);
+  console.error("");
+  await showUsage(requested.command, requested.parent, console.error);
+  return new CliUsageError(`Unknown command: ${word}`, { presented: true });
+}
+
+async function showRequestedUsage(print: (text: string) => void): Promise<void> {
   const requested = await resolveCommandUsage(main as CommandDef, argv);
-  return showUsage(requested.command, requested.parent);
+  if (!requested.parent && requested.unknownSubcommand) throw await unknownCommandError(requested);
+  return showUsage(requested.command, requested.parent, print);
+}
+
+function isCittyError(error: unknown, code: string): boolean {
+  return (
+    error instanceof Error &&
+    error.name === "CLIError" &&
+    (error as { code?: unknown }).code === code
+  );
 }
 
 // citty's own parse errors (missing argument, bad enum value, unknown or missing subcommand).
 const CITTY_USAGE_CODES = new Set(["EARG", "E_UNKNOWN_COMMAND", "E_NO_COMMAND"]);
 
 function isCittyUsageError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.name === "CLIError" &&
-    CITTY_USAGE_CODES.has(String((error as { code?: unknown }).code))
-  );
+  return [...CITTY_USAGE_CODES].some((code) => isCittyError(error, code));
 }
 
 function commandResultForError(error: unknown): CommandResult {
@@ -547,16 +576,19 @@ function commandResultForError(error: unknown): CommandResult {
 async function executeCli(): Promise<void> {
   let result: CommandResult = { exitCode: 0, kind: "success" };
   try {
-    if (isHelp) await showRequestedUsage();
+    if (isHelp) await showRequestedUsage(console.log);
     else await runCommand(main, { rawArgs: argv });
-  } catch (error) {
+  } catch (caught) {
+    const error = isCittyError(caught, "E_UNKNOWN_COMMAND")
+      ? await unknownCommandError(await resolveCommandUsage(main as CommandDef, argv))
+      : caught;
     result = commandResultForError(error);
     if (!(error instanceof CliResultSignal)) {
       commandFailed = true;
       await reportCommandFailure(command, error);
       const typed = error instanceof CliUsageError || error instanceof CliRuntimeError;
       const usage = error instanceof CliUsageError && !error.result.presented;
-      if (usage && !error.hint) await showRequestedUsage();
+      if (usage && !error.hint) await showRequestedUsage(console.error);
       if (!typed || !error.result.presented) {
         console.error(error instanceof Error ? error.message : String(error));
       }
