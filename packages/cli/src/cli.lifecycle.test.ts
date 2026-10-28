@@ -298,8 +298,7 @@ describe("CLI lifecycle", () => {
   });
 
   it("keeps exit 0 when a late rejection follows a command that already delivered", async () => {
-    // check and snapshot print their result, then close Chrome; on Windows that teardown can reject after the
-    // result is out, and the handler used to write exit code 1 over a run that had succeeded.
+    // check and snapshot close Chrome after printing their result; on Windows that teardown can reject after the result is out.
     const trackCommandResult = vi.fn();
     const priorListeners = process.listeners("unhandledRejection");
     process.removeAllListeners("unhandledRejection");
