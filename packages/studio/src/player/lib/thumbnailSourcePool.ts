@@ -17,11 +17,14 @@ interface OpenedSource {
 export interface ThumbnailSource extends OpenedSource {
   /** Ends this job's use. A failed job retires the reader, so the next job opens a fresh one. */
   release(failed: boolean): void;
+  /** Disposes the reader now, whoever still uses it, failing their pending reads: for a reader stuck in one. */
+  abandon(): void;
 }
 
 interface PooledSource {
   version: string | undefined;
   input: Input | null;
+  cancelReads: (() => void) | null;
   opened: Promise<OpenedSource>;
   users: number;
   idleTimer: ReturnType<typeof setTimeout> | null;
@@ -43,6 +46,7 @@ function dispose(source: string, entry: PooledSource): void {
   if (entry.idleTimer !== null) clearTimeout(entry.idleTimer);
   if (pool.get(source) === entry) pool.delete(source);
   entry.input?.dispose();
+  entry.cancelReads?.();
 }
 
 function retire(source: string, entry: PooledSource): void {
@@ -58,11 +62,13 @@ async function open(source: string, pooled: () => PooledSource): Promise<OpenedS
     if (entry.disposed) throw abortError();
   };
   live();
+  const options = mediaUrlSourceOptions("thumbnail");
   const input = new mediabunny.Input({
-    source: new mediabunny.UrlSource(source, mediaUrlSourceOptions("thumbnail")),
+    source: new mediabunny.UrlSource(source, options),
     formats: mediabunny.ALL_FORMATS,
   });
   entry.input = input;
+  entry.cancelReads = options.cancelReads;
   const track = await input.getPrimaryVideoTrack();
   live();
   if (!track) throw new Error("Video source has no decodable video track");
@@ -86,6 +92,7 @@ function pooledSource(source: string, version: string | undefined): PooledSource
   const entry: PooledSource = {
     version,
     input: null,
+    cancelReads: null,
     opened: open(source, () => entry),
     users: 0,
     idleTimer: null,
@@ -133,8 +140,9 @@ export async function acquireThumbnailSource(
       dispose(source, entry);
     }
   };
+  const abandon = () => dispose(source, entry);
   try {
-    return { ...(await untilAborted(entry.opened, signal)), release };
+    return { ...(await untilAborted(entry.opened, signal)), release, abandon };
   } catch (error) {
     release(!isAbortError(error));
     throw error;

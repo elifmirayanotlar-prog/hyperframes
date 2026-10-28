@@ -99,10 +99,14 @@ function typedBody(
  */
 export function mediaUrlSourceOptions(reader: MediaReader) {
   let failures = 0;
+  // Disposing an Input leaves a read stalled mid-body waiting for good; aborting its fetch ends it.
+  const reads = new AbortController();
   // Thumbnail ranges are bounded only after this reader read a Content-Range, and never once one was hidden.
   let ranges: "unknown" | "readable" | "hidden" = reader === "thumbnail" ? "unknown" : "hidden";
   const fetchFn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const sent = ranges === "readable" ? boundedRange(init) : init;
+    const bounded = ranges === "readable" ? boundedRange(init) : init;
+    const signals = [reads.signal, ...(init?.signal ? [init.signal] : [])];
+    const sent = { ...bounded, signal: AbortSignal.any(signals) };
     let response: Response;
     try {
       // oxlint-disable-next-line no-restricted-globals -- a media read, on the media's sockets like mediabunny's own
@@ -127,8 +131,10 @@ export function mediaUrlSourceOptions(reader: MediaReader) {
     failures++;
     return 0.5 * failures;
   };
-  if (reader === "probe") return { fetchFn, getRetryDelay };
-  return { fetchFn, getRetryDelay, maxCacheSize: THUMBNAIL_READ_CACHE_BYTES };
+  /** Fails every read this source has in flight. Call it after disposing the Input reading through it. */
+  const cancelReads = () => reads.abort(new DOMException("Media reads cancelled", "AbortError"));
+  if (reader === "probe") return { fetchFn, getRetryDelay, cancelReads };
+  return { fetchFn, getRetryDelay, cancelReads, maxCacheSize: THUMBNAIL_READ_CACHE_BYTES };
 }
 
 export function reportMediaFetchFailure(error: unknown): void {

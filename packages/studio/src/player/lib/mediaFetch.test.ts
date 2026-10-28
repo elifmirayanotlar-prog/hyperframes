@@ -106,6 +106,59 @@ describe("mediaUrlSourceOptions", () => {
     }
   });
 
+  it("fails a read stalled mid-body once its reader is disposed and its reads cancelled", async () => {
+    // Like fetch, the stub ends its body when the request's signal aborts, and not before.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        let sent = false;
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (!sent) {
+              sent = true;
+              return controller.enqueue(new Uint8Array(16));
+            }
+            return new Promise<void>((resolve) => {
+              const end = () => {
+                controller.error(init?.signal?.reason);
+                resolve();
+              };
+              init?.signal?.addEventListener("abort", end, { once: true });
+            });
+          },
+        });
+        const headers = { "Content-Range": "bytes 0-999999/1000000", "Content-Length": "1000000" };
+        return new Response(body, { status: 206, headers });
+      }),
+    );
+    const mb = await import("mediabunny");
+    const runnerListeners = process.listeners("unhandledRejection");
+    process.removeAllListeners("unhandledRejection");
+    process.on("unhandledRejection", () => {});
+    try {
+      const options = mediaUrlSourceOptions("thumbnail");
+      const input = new mb.Input({
+        source: new mb.UrlSource(URL_WITH_PATH, options),
+        formats: mb.ALL_FORMATS,
+      });
+      let settled = false;
+      const read = input.getDurationFromMetadata().finally(() => (settled = true));
+      read.catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(settled).toBe(false);
+
+      input.dispose();
+      options.cancelReads();
+      await expect(read).rejects.toBeDefined();
+      // The cancelled read-ahead's own rejection lands a turn later; keep it out of the next test.
+      await new Promise(setImmediate);
+      await new Promise(setImmediate);
+    } finally {
+      process.removeAllListeners("unhandledRejection");
+      for (const listener of runnerListeners) process.on("unhandledRejection", listener);
+    }
+  });
+
   it("counts mid-stream read failures, which always arrive as attempt 1", () => {
     const { getRetryDelay } = mediaUrlSourceOptions("thumbnail");
     const readError = new TypeError("network error");

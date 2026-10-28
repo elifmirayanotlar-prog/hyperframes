@@ -5,7 +5,11 @@ import {
   type ThumbnailValue,
 } from "./thumbnailScheduler";
 import { reportMediaFetchFailure } from "./mediaFetch";
-import { acquireThumbnailSource, type SourceInfo } from "./thumbnailSourcePool";
+import {
+  acquireThumbnailSource,
+  type SourceInfo,
+  type ThumbnailSource,
+} from "./thumbnailSourcePool";
 import {
   releaseSharedFrames,
   shareFrame,
@@ -79,6 +83,26 @@ interface ThumbnailCanvasSink {
 
 const isAbortError = (error: unknown) =>
   (error as { name?: unknown } | null)?.name === "AbortError";
+const isTimeout = (reason: unknown) =>
+  (reason as { name?: unknown } | null)?.name === "TimeoutError";
+
+/**
+ * A read stalled mid-response ignores the job's signal, so a job stuck in one never releases its
+ * reader. Drop that reader at once when the job timed out, or a load timeout after any other
+ * cancel the job has still not answered; a cancel the job answers leaves the reader pooled.
+ */
+function abandonWhenStuck(signal: AbortSignal, source: ThumbnailSource, graceMs: number) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const onAbort = () => {
+    if (isTimeout(signal.reason)) source.abandon();
+    else timer = setTimeout(() => source.abandon(), graceMs);
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  return () => {
+    signal.removeEventListener("abort", onAbort);
+    if (timer !== null) clearTimeout(timer);
+  };
+}
 
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
@@ -249,6 +273,7 @@ async function decodeMissingFrames(
     signal,
     budgets.thumbnailSourceIdleMs,
   );
+  const stopWatching = abandonWhenStuck(signal, source, budgets.thumbnailLoadTimeoutMs);
   try {
     throwIfAborted(signal);
     const { mediabunny, track, info } = source;
@@ -286,5 +311,7 @@ async function decodeMissingFrames(
   } catch (error) {
     source.release(!isAbortError(error));
     throw error;
+  } finally {
+    stopWatching();
   }
 }
