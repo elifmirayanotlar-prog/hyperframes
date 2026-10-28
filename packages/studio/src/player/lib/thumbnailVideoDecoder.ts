@@ -56,7 +56,6 @@ const sourceInfos = new Map<string, { version: string | undefined; info: SourceI
 const accepts = (window: FrameWindow, time: number, decodedAt: number) =>
   decodedAt >= window.sourceStart && time - decodedAt <= (time >= window.end ? 0 : window.lead);
 
-/** One clip's result failed, not the source it reads: its reader stays pooled for the next clip. */
 class ClipResultError extends Error {}
 
 async function canvasToBlob(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<Blob> {
@@ -80,8 +79,7 @@ interface DecodedResources {
   held: HeldFrame[];
   canvases: Set<HTMLCanvasElement | OffscreenCanvas>;
   releasedFrameBytes: number;
-  /** Frames this job decoded itself: its progress, against a timeout. */
-  decoded: number;
+  decodedByJob: number;
 }
 
 interface ThumbnailCanvasSink {
@@ -90,17 +88,10 @@ interface ThumbnailCanvasSink {
   ): AsyncIterable<{ canvas: HTMLCanvasElement | OffscreenCanvas } | null>;
 }
 
-/**
- * A job that timed out without progress in its whole run (its source never finished opening, or it
- * decoded no frame) failed because of its source: a source that never answers, or one that trickles
- * bytes but never finishes. One typed line, and its reader is retired. A job that waited for an open
- * that finished, or decoded a frame, timed out on a slow link: its reader, and the index, stay.
- */
-const timeoutFailure = () => new MediaFetchError("thumbnail", null, "timeout");
+const timeoutWithoutProgress = () => new MediaFetchError("thumbnail", null, "timeout");
 
 const isAbortError = (error: unknown) =>
   (error as { name?: unknown } | null)?.name === "AbortError";
-// Fetch, demux and decode failures retire the reader; a cancel or one clip's own result does not.
 const isSourceFailure = (error: unknown) =>
   !isAbortError(error) && !(error instanceof ClipResultError);
 function throwIfAborted(signal: AbortSignal): void {
@@ -194,7 +185,7 @@ async function decodeFrames(
     const blob = await canvasToBlob(wrapped.canvas);
     throwIfAborted(signal);
     const frame = shareFrame(target.key, target.decodedAt, URL.createObjectURL(blob), blob.size);
-    resources.decoded += 1;
+    resources.decodedByJob += 1;
     resources.urls[target.slot] = frame.url;
     resources.held.push({ key: target.key, frame });
   }
@@ -241,7 +232,7 @@ export async function decodeVideoThumbnail(
     held: [],
     canvases: new Set(),
     releasedFrameBytes: budgets.sharedFrameCacheBytes,
-    decoded: 0,
+    decodedByJob: 0,
   };
   const entry = sourceInfos.get(request.source);
   const known = entry?.version === request.contentVersion ? entry?.info : undefined;
@@ -277,12 +268,13 @@ async function decodeMissingFrames(
       budgets.thumbnailSourceIdleMs,
     );
   } catch (error) {
-    if (timedOut(signal)) reportMediaFetchFailure(timeoutFailure());
+    if (timedOut(signal)) reportMediaFetchFailure(timeoutWithoutProgress());
     throw error;
   }
   const releaseOnAbort = () => {
-    const failed = timedOut(signal) && !source.waitedForOpen && resources.decoded === 0;
-    if (failed) reportMediaFetchFailure(timeoutFailure());
+    const madeProgress = source.waitedForOpen || resources.decodedByJob > 0;
+    const failed = timedOut(signal) && !madeProgress;
+    if (failed) reportMediaFetchFailure(timeoutWithoutProgress());
     source.release(failed);
   };
   signal.addEventListener("abort", releaseOnAbort, { once: true });

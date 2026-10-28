@@ -232,7 +232,6 @@ export class ThumbnailScheduler {
     }
   }
 
-  /** While the preview plays, no new video decode starts unless a scrub asks for it; pausing drains the queue. */
   setPlaybackActive(active: boolean): void {
     if (this.playbackActive === active) return;
     this.playbackActive = active;
