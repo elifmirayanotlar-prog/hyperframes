@@ -1313,7 +1313,8 @@
     }
     if (element.tagName === "CANVAS") {
       const alpha = canvasAlphaAt(element, x, y);
-      if (alpha !== null) return alpha * opacity >= OCCLUDING_ALPHA;
+      if (alpha !== null)
+        return alpha * opacity >= OCCLUDING_ALPHA || hasOpaqueBackground(getComputedStyle(element));
     }
     const matte = matteFrameFor(element);
     if (matte) return matteOccludesAt(matte, x, y);
