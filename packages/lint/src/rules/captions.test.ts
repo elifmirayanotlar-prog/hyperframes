@@ -164,6 +164,128 @@ describe("caption rules", () => {
     expect(finding?.severity).toBe("error");
   });
 
+  it("errors when the caption transcript is fetched instead of inlined", async () => {
+    const html = `
+<html><body>
+  <div data-composition-id="captions" data-width="1920" data-height="1080">
+    <style>
+      .caption-group { position: absolute; }
+    </style>
+    <script>
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+      fetch("transcript.json").then(function (res) { return res.json(); });
+      window.__timelines["captions"] = tl;
+    </script>
+  </div>
+</body></html>`;
+    const result = await lintHyperframeHtml(html);
+    const finding = result.findings.find((f) => f.code === "caption_transcript_not_inline");
+    expect(finding).toBeDefined();
+    expect(finding?.severity).toBe("error");
+  });
+
+  it("does not error when the caption transcript is inlined", async () => {
+    const html = `
+<html><body>
+  <div data-composition-id="captions" data-width="1920" data-height="1080">
+    <style>
+      .caption-group { position: absolute; }
+    </style>
+    <script>
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+      var TRANSCRIPT = [{ "text": "Hello", "start": 0, "end": 1 }];
+      fetch("transcript.json").then(function (res) { return res.json(); });
+      window.__timelines["captions"] = tl;
+    </script>
+  </div>
+</body></html>`;
+    const result = await lintHyperframeHtml(html);
+    const finding = result.findings.find((f) => f.code === "caption_transcript_not_inline");
+    expect(finding).toBeUndefined();
+  });
+
+  it("warns when textShadow is tweened on a caption group container", async () => {
+    const html = `
+<html><body>
+  <div data-composition-id="captions" data-width="1920" data-height="1080">
+    <style>
+      .caption-group { position: absolute; }
+    </style>
+    <script>
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+      var groupEl = document.querySelector(".caption-group");
+      tl.to(groupEl, { textShadow: "0 0 20px #fff", duration: 0.2 }, 0);
+      window.__timelines["captions"] = tl;
+    </script>
+  </div>
+</body></html>`;
+    const result = await lintHyperframeHtml(html);
+    const finding = result.findings.find((f) => f.code === "caption_textshadow_on_group_container");
+    expect(finding).toBeDefined();
+    expect(finding?.severity).toBe("warning");
+  });
+
+  it("does not warn when textShadow is tweened on an individual word", async () => {
+    const html = `
+<html><body>
+  <div data-composition-id="captions" data-width="1920" data-height="1080">
+    <style>
+      .caption-group { position: absolute; }
+    </style>
+    <script>
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+      var wordEl = document.querySelector(".caption-word");
+      tl.to(wordEl, { textShadow: "0 0 20px #fff", duration: 0.2 }, 0);
+      window.__timelines["captions"] = tl;
+    </script>
+  </div>
+</body></html>`;
+    const result = await lintHyperframeHtml(html);
+    const finding = result.findings.find((f) => f.code === "caption_textshadow_on_group_container");
+    expect(finding).toBeUndefined();
+  });
+
+  it("warns when fitTextFontSize maxWidth times word scale overflows the frame", async () => {
+    const html = `
+<html><body>
+  <div data-composition-id="captions" data-width="1920" data-height="1080">
+    <script>
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+      var size = fitTextFontSize(text, { maxWidth: 1600 });
+      tl.to(".caption-word", { scale: 1.2, duration: 0.1 }, 0);
+      window.__timelines["captions"] = tl;
+    </script>
+  </div>
+</body></html>`;
+    const result = await lintHyperframeHtml(html);
+    const finding = result.findings.find((f) => f.code === "caption_fittext_scale_mismatch");
+    expect(finding).toBeDefined();
+    expect(finding?.severity).toBe("warning");
+  });
+
+  it("does not warn when fitTextFontSize leaves headroom for word scale", async () => {
+    const html = `
+<html><body>
+  <div data-composition-id="captions" data-width="1920" data-height="1080">
+    <script>
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+      var size = fitTextFontSize(text, { maxWidth: 1400 });
+      tl.to(".caption-word", { scale: 1.2, duration: 0.1 }, 0);
+      window.__timelines["captions"] = tl;
+    </script>
+  </div>
+</body></html>`;
+    const result = await lintHyperframeHtml(html);
+    const finding = result.findings.find((f) => f.code === "caption_fittext_scale_mismatch");
+    expect(finding).toBeUndefined();
+  });
+
   describe("caption_text_overflow_risk — its fix must not create an error", () => {
     const cap = (css: string) => `
 <html><body>
