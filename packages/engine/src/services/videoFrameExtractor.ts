@@ -1621,9 +1621,9 @@ export async function resolveFinalFrameExtractionWindow(
   if (!window.ensureFinalFrame) return window;
   const playableDuration = resolvePlayableVideoDuration(metadata);
   const videoStreamLead = metadata.videoStreamLeadSeconds ?? 0;
-  // A file can run past the duration it reports; the browser then holds the frame at that end.
+  const lastInstantTheBrowserPlays = playableDuration - FINAL_FRAME_LOGICAL_DURATION_SECONDS;
   const finalFrameTimestamp = Math.min(
-    playableDuration - FINAL_FRAME_LOGICAL_DURATION_SECONDS,
+    lastInstantTheBrowserPlays,
     videoStartOnMediaTimeline(metadata) +
       (await extractFinalVideoFrameTimestamp(
         videoPath,

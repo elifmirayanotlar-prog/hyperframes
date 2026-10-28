@@ -183,6 +183,26 @@ describe.skipIf(!HAS_FFMPEG)(
       expect(getFrameAtTime(extracted, 8, 0)).not.toBeNull();
     }, 30_000);
 
+    it("shows the picture of a file whose streams all start late on the clock its audio plays on", async () => {
+      const frames = join(dir, "frames");
+      const source = await extractVideoFramesRange(join(dir, "picture.mp4"), "picture", 0, 5, {
+        fps: 30,
+        outputDir: frames,
+      });
+      const late = await extractVideoFramesRange(
+        join(dir, "both-late.mp4"),
+        "both-late",
+        0,
+        5 + BOTH_LATE_SECONDS,
+        { fps: 30, outputDir: frames },
+      );
+      for (const second of [0.5, 3.5]) {
+        expect(readFileSync(getFrameAtTime(late, BOTH_LATE_SECONDS + second, 0)!)).toEqual(
+          readFileSync(getFrameAtTime(source, second, 0)!),
+        );
+      }
+    }, 30_000);
+
     it("keeps every frame of a video stream that starts first", async () => {
       const extracted = await extractVideoFramesRange(
         join(dir, "audio-late.mp4"),

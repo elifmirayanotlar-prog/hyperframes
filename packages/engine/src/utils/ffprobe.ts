@@ -207,7 +207,6 @@ export interface VideoMetadata {
   videoStreamStartSeconds?: number;
   /** Seconds after the file's media time 0 (its earliest audio/video stream start) at which video begins. */
   videoStreamLeadSeconds?: number;
-  /** How far the browser's media time runs ahead of the file's: it counts an MP4 or WebM from timestamp 0. */
   mediaTimeOffsetSeconds?: number;
   width: number;
   height: number;
@@ -245,7 +244,6 @@ export interface AudioMetadata {
   /** Seconds after the file's media time 0 at which its last audio or video stream starts. */
   latestStreamLeadSeconds?: number;
   audioStreamLeadSeconds?: number;
-  /** As on VideoMetadata: how far the browser's media time runs ahead of the file's. */
   mediaTimeOffsetSeconds?: number;
   audioStreamCount?: number;
   /** The track read for these facts and for the mix, by its place among the audio streams (decodableAudioStream). */
@@ -516,14 +514,12 @@ export async function buildProbeFactsText(filePath: string, signal?: AbortSignal
   return JSON.stringify(facts);
 }
 
-/** Where the video begins on the media timeline the browser plays. */
 export function videoStartOnMediaTimeline(
   metadata: Pick<VideoMetadata, "videoStreamLeadSeconds" | "mediaTimeOffsetSeconds">,
 ): number {
   return (metadata.videoStreamLeadSeconds ?? 0) + (metadata.mediaTimeOffsetSeconds ?? 0);
 }
 
-/** FFmpeg's input `-ss` for a media time: FFmpeg counts from the file's earliest stream start. */
 export function ffmpegSeekSeconds(
   metadata: Pick<VideoMetadata, "mediaTimeOffsetSeconds">,
   mediaTime: number,
@@ -1292,11 +1288,12 @@ function streamLeadSeconds(output: FFProbeOutput | null, stream: FFProbeStream):
   return Number.isFinite(start) && starts.length > 0 ? Math.max(0, start - Math.min(...starts)) : 0;
 }
 
-// Transport streams start their clock anywhere (MPEG-TS at 1.4 s); their earliest stream is media time 0.
+const BROWSER_PLAYS_FROM_TIMESTAMP_ZERO = /\b(mp4|webm)\b/;
+
 function mediaTimeOffsetSeconds(output: FFProbeOutput | null): number {
   const starts = audioVideoStreamStarts(output);
-  const countsFromZero = /\b(mp4|webm)\b/.test(output?.format.format_name ?? "");
-  return countsFromZero && starts.length > 0 ? Math.max(0, Math.min(...starts)) : 0;
+  const fromZero = BROWSER_PLAYS_FROM_TIMESTAMP_ZERO.test(output?.format.format_name ?? "");
+  return fromZero && starts.length > 0 ? Math.max(0, Math.min(...starts)) : 0;
 }
 
 function latestStreamLeadSeconds(output: FFProbeOutput): number {
