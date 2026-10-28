@@ -316,7 +316,7 @@ describe("resolveOwnVersionFrom", () => {
   });
 
   it("reads the installed engine when an app bundles it into its own dist", () => {
-    write(".", { name: "@app/producer-internal", version: "0.0.0" });
+    write(".", { name: "some-server-app", version: "0.0.0" });
     write("node_modules/@hyperframes/engine", {
       name: "@hyperframes/engine",
       version: "0.8.212",
