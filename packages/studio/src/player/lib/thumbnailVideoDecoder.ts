@@ -65,7 +65,9 @@ async function canvasToBlob(canvas: HTMLCanvasElement | OffscreenCanvas): Promis
       );
     });
   }
-  return canvas.convertToBlob({ type: "image/jpeg", quality: 0.72 });
+  return canvas.convertToBlob({ type: "image/jpeg", quality: 0.72 }).catch(() => {
+    throw new ClipResultError("Video thumbnail encode failed");
+  });
 }
 
 interface DecodedResources {

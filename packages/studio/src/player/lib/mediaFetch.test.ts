@@ -431,9 +431,16 @@ describe("thumbnail reads", () => {
     await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=0-" } });
     await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=1000-" } });
     await fetchFn(URL_WITH_PATH, { headers: new Headers({ Range: "bytes=0-99" }) });
+    // A bounded answer's Content-Range is read too, so the reader stays bounded.
+    await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=2000-" } });
 
     // The first stays open-ended: without a readable Content-Range mediabunny sizes the file from it.
-    expect(ranges).toEqual(["bytes=0-", `bytes=1000-${1000 + BOUND - 1}`, "bytes=0-99"]);
+    expect(ranges).toEqual([
+      "bytes=0-",
+      `bytes=1000-${1000 + BOUND - 1}`,
+      "bytes=0-99",
+      `bytes=2000-${2000 + BOUND - 1}`,
+    ]);
   });
 
   it("never bounds a reader once an answer hid its Content-Range", async () => {

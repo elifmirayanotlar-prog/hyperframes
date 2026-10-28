@@ -667,6 +667,34 @@ describe("decodeVideoThumbnail's shared source", () => {
     expect(dispose).not.toHaveBeenCalled();
   });
 
+  it("keeps the reader when a clip's frame will not encode", async () => {
+    HTMLCanvasElement.prototype.toBlob = function toBlob(callback) {
+      callback(null);
+    };
+    recordDecodes([]);
+    await expect(decodeVideoThumbnail(clip(0), signal)).rejects.toThrow("encode failed");
+    HTMLCanvasElement.prototype.toBlob = function toBlob(callback) {
+      callback(new Blob(["frame"], { type: "image/jpeg" }));
+    };
+    await decodeVideoThumbnail(clip(6), signal);
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+    expect(dispose).not.toHaveBeenCalled();
+  });
+
+  it("keeps the reader when an offscreen frame will not encode", async () => {
+    const offscreen = { width: 1, height: 1, convertToBlob: () => Promise.reject(new Error("no")) };
+    canvasesAtTimestamps.mockImplementationOnce(async function* (
+      timestamps: AsyncIterable<number>,
+    ) {
+      for await (const _time of timestamps) yield { canvas: offscreen };
+    });
+    await expect(decodeVideoThumbnail(clip(0), signal)).rejects.toThrow("encode failed");
+    recordDecodes([]);
+    await decodeVideoThumbnail(clip(6), signal);
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+    expect(dispose).not.toHaveBeenCalled();
+  });
+
   it("keeps the reader of a clip scrolled away from, for the next clip", async () => {
     vi.useFakeTimers();
     try {
