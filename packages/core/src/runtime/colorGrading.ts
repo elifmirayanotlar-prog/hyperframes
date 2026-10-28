@@ -2882,9 +2882,8 @@ export function calculateObjectFitUv(
   }
   const position = parseObjectPosition(objectPosition || "center");
   const offsetX = ((boxWidth - drawWidth) * position.x) / boxWidth;
-  // object-position's y runs top-down; the source texture is uploaded flipped, so
-  // this offset is measured from the box's bottom edge and mirrors the position.
-  const offsetY = ((boxHeight - drawHeight) * (1 - position.y)) / boxHeight;
+  const positionFromBottom = 1 - position.y;
+  const offsetY = ((boxHeight - drawHeight) * positionFromBottom) / boxHeight;
   return {
     scaleX: drawWidth / boxWidth,
     scaleY: drawHeight / boxHeight,
