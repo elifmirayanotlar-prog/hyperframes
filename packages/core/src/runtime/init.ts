@@ -4561,7 +4561,9 @@ export function initSandboxRuntimeModular(): void {
   };
   // Mounts the named scenes and keeps them mounted until the same holder's next call names others.
   const holdScenes = async (names: string[], holder = "studio"): Promise<void> => {
-    holds.set(holder, new Set(names.filter((name) => windowScenes.some((s) => s.name === name))));
+    const scenes = new Set(names.filter((name) => windowScenes.some((s) => s.name === name)));
+    if (scenes.size) holds.set(holder, scenes);
+    else holds.delete(holder);
     heldScenes = new Set([...holds.values()].flatMap((held) => [...held]));
     windowNear = "";
     // Bounded: a scene that cannot mount must not keep this waiting.

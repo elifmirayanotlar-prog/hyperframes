@@ -113,6 +113,90 @@ try {
     assert.deepEqual(await parked(), before, `the query hands the scene window back at ${scene}`);
   }
 
+  await seek(1);
+  const beforeConcurrent = await parked();
+  let queryReady = () => {};
+  const ready = new Promise<void>((resolve) => {
+    queryReady = resolve;
+  });
+  let resumeQuery = () => {};
+  const resume = new Promise<void>((resolve) => {
+    resumeQuery = resolve;
+  });
+  const delayedRunner: PageRunner = {
+    async run(fn, arg) {
+      if (fn.name === "queryPage") {
+        queryReady();
+        await resume;
+      }
+      return runner.run(fn, arg);
+    },
+  };
+  const pending = live.inspect(delayedRunner, { targets: words });
+  await ready;
+  try {
+    await live.elementMap(runner);
+    await seek(16);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(
+      await parked(),
+      [],
+      "another request cannot release an active inspection's scenes",
+    );
+  } finally {
+    resumeQuery();
+    await pending;
+  }
+  await seek(1);
+  assert.deepEqual(await parked(), beforeConcurrent, "concurrent queries release their holds");
+
+  const nestedRunner: PageRunner = {
+    async run(fn, arg) {
+      if (fn.name === "queryPage") {
+        await live.timeline(runner, {});
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        assert.deepEqual(await parked(), [], "a nested query leaves its caller's scenes mounted");
+      }
+      return runner.run(fn, arg);
+    },
+  };
+  const nested = await live.inspect(nestedRunner, { targets: words });
+  assert(nested.results.every((result) => result.status === "found"));
+
+  for (const failurePoint of ["queryPage", "holdEveryScenePage"]) {
+    const failedRunner: PageRunner = {
+      async run(fn, arg) {
+        if (fn.name === failurePoint) {
+          if (failurePoint === "holdEveryScenePage") await runner.run(fn, arg);
+          throw new DOMException("inspection aborted", "AbortError");
+        }
+        return runner.run(fn, arg);
+      },
+    };
+    await assert.rejects(live.inspect(failedRunner, { targets: words }), /inspection aborted/);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(await parked(), beforeConcurrent, `${failurePoint} failure releases its hold`);
+  }
+
+  await page.evaluate(() => {
+    const missing = document.createElement("div");
+    missing.id = "unmountable";
+    missing.setAttribute("data-hf-scene", "unmountable");
+    missing.setAttribute("data-hf-parked-scene", "");
+    document.body.append(missing);
+  });
+  try {
+    await assert.rejects(live.elementMap(runner), /scenes_not_mounted:.*unmountable/);
+  } finally {
+    await page.evaluate(() => document.getElementById("unmountable")?.remove());
+  }
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(
+    await parked(),
+    beforeConcurrent,
+    "a mount failure releases the scenes it acquired",
+  );
+
   // Studio's own hold survives a query: the inspector holds apart from it.
   await seek(1);
   await page.evaluate(() => (window as any).__hfHoldScenes(["four"]));

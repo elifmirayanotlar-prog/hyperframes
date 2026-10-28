@@ -79,15 +79,15 @@ export function prepareLiveInspection(
       throw new Error("stale_preview: the preview reloaded; query again");
     await view.assertCurrent();
   }
-  // The preview parks scenes away from the playhead; a query sees every composition only while all are mounted.
   async function withEveryScene<R>(runner: PageRunner, query: () => Promise<R>): Promise<R> {
+    const holder = `inspection:${randomUUID()}`;
     try {
-      const parked = await runner.run(holdEveryScenePage, undefined);
+      const parked = await runner.run(holdEveryScenePage, holder);
       if (parked.length)
         throw new Error(`scenes_not_mounted: the preview could not mount ${parked.join(", ")}`);
       return await query();
     } finally {
-      await runner.run(releaseEveryScenePage, undefined).catch(() => {});
+      await runner.run(releaseEveryScenePage, holder).catch(() => {});
     }
   }
   return {
