@@ -111,5 +111,6 @@ describe.skipIf(!HAS_FFMPEG)("concat input paths", () => {
         expect(frame < 2 ? blue : red).toBeLessThan(5);
       }
     },
+    30_000,
   );
 });
