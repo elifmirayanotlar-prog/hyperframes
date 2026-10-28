@@ -181,6 +181,10 @@ export interface CreateHyperframesRenderRequest {
    */
   crf?: number | null;
   /**
+   * Set 'off' to disable page motion blur. Omit or null to keep behavior.
+   */
+  page_motion_blur?: "off" | null;
+  /**
    * Output resolution tier. Defaults to '1080p'. Pass '4k' for 4K renders
    * (billed at 1.5x).
    */
