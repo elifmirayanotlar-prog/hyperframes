@@ -52,7 +52,7 @@ jobs:
           $project = "$env:RUNNER_TEMP\video-project"
           New-Item -ItemType Directory -Force -Path $project | Out-Null
           Set-Location $project
-          ffmpeg -y -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=180" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 30 1.mp4
+          ffmpeg -y -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=300" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 30 1.mp4
           @'
           <!doctype html>
           <html lang="en">
@@ -65,8 +65,8 @@ jobs:
               </style>
             </head>
             <body>
-              <div id="root" data-composition-id="root" data-start="0" data-duration="180" data-width="1920" data-height="1080">
-                <video id="v" src="1.mp4" data-start="0" muted data-duration="180" data-track-index="0" data-media-start="0"></video>
+              <div id="root" data-composition-id="root" data-start="0" data-duration="300" data-width="1920" data-height="1080">
+                <video id="v" src="1.mp4" data-start="0" muted data-duration="300" data-track-index="0" data-media-start="0"></video>
               </div>
               <script>window.__timelines = window.__timelines || {};</script>
             </body>
@@ -90,13 +90,13 @@ jobs:
             $log = "$env:RUNNER_TEMP\render.log"
             $p = Start-Process -FilePath node -ArgumentList (@($cli, 'render', '--fps', '30', '--quality', 'draft') + $v.Args + @('--output', 'renders\probe.mp4')) -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -WindowStyle Hidden
             $peak = 0
-            $deadline = (Get-Date).AddMinutes(7)
+            $deadline = (Get-Date).AddMinutes(4)
             while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
               $used = [math]::Round(((Get-PSDrive S).Used) / 1MB)
               if ($used -gt $peak) { $peak = $used }
               Start-Sleep -Milliseconds 500
             }
-            if (-not $p.HasExited) { Write-Host 'still running after 7 minutes; stopping it'; Stop-Process -Id $p.Id -Force }
+            if (-not $p.HasExited) { Write-Host 'still running after 4 minutes; stopping it'; Stop-Process -Id $p.Id -Force }
             Write-Host "exit=$($p.ExitCode) peak used on S: $peak MB, free now $([math]::Round((Get-PSDrive S).Free / 1MB)) MB"
             Get-Content $log, "$log.err" | Where-Object { $_ -match 'ENOENT|ENOSPC|rror|rame|space' } | Select-Object -Last 20 | ForEach-Object { Write-Host "    | $_" }
           }
