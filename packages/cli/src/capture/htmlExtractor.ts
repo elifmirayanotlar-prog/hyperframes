@@ -154,8 +154,9 @@ export async function extractHtml(
         }
       } catch(e) {
         // Canvas CORS failed — try fetch + blob as fallback
+        var stop = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
         try {
-          var resp = await fetch(img.src, { mode: "cors", signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
+          var resp = await fetch(img.src, { mode: "cors", signal: stop });
           if (resp.ok) {
             var blob = await resp.blob();
             var reader = new FileReader();
@@ -170,7 +171,7 @@ export async function extractHtml(
           }
         } catch(e2) {
           // Both methods failed — image stays as original URL
-          if (Date.now() >= deadline) kept++;
+          if (stop.aborted) kept++;
         }
       }
     }
