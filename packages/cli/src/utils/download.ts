@@ -106,6 +106,56 @@ function contentRange(header: string | undefined): { start: number; total: numbe
     : null;
 }
 
+type ResponsePlan =
+  | { kind: "redirect"; location: string }
+  | { kind: "body"; start: number; total: number | null; append: boolean }
+  | { kind: "refuse"; status: number | undefined };
+
+/** What to do with a response to a request for the bytes from `offset` on. */
+function planResponse(res: IncomingMessage, offset: number): ResponsePlan {
+  const status = res.statusCode;
+  const location = res.headers.location;
+  if (status && REDIRECT_CODES.has(status) && location) return { kind: "redirect", location };
+  const range = status === 206 ? contentRange(res.headers["content-range"]) : null;
+  if (offset > 0 && range?.start === offset) {
+    return { kind: "body", start: offset, total: range.total, append: true };
+  }
+  // A 200, including one to a range request, is the whole file from byte 0.
+  if (status === 200) {
+    return {
+      kind: "body",
+      start: 0,
+      total: byteCount(res.headers["content-length"]),
+      append: false,
+    };
+  }
+  return { kind: "refuse", status };
+}
+
+/** Writes a response body to `tmp`, leaving `state.received` at the bytes that reached disk. */
+async function writeBody(
+  res: IncomingMessage,
+  tmp: string,
+  plan: Extract<ResponsePlan, { kind: "body" }>,
+  state: { received: number; total: number | null },
+  options: DownloadOptions,
+): Promise<void> {
+  state.received = plan.start;
+  state.total = plan.total;
+  const meter = measureDownload(options, plan.start, plan.total);
+  const file = createWriteStream(tmp, { flags: plan.append ? "a" : "w" });
+  try {
+    await pipeline(res, meter.stream, file);
+  } catch (error) {
+    // Chunks still buffered in the destroyed file stream never reach disk.
+    if (!file.closed) await once(file, "close").catch(() => {});
+    state.received = fileSize(tmp);
+    throw error;
+  }
+  state.received = meter.received();
+  meter.complete();
+}
+
 /** One request chain; `state.received` holds the bytes in `tmp` even when it rejects. */
 function downloadAttempt(
   url: string,
@@ -121,61 +171,41 @@ function downloadAttempt(
       let responseDiscarded = false;
       let responsePipelineStarted = false;
       let requestError: Error | undefined;
-      let request: ClientRequest;
-      try {
-        request = getUrl(u, options.signal, offset, (res) => {
-          activeResponse = res;
-          if (res.statusCode && REDIRECT_CODES.has(res.statusCode)) {
-            const location = res.headers.location;
-            if (location) {
-              responseDiscarded = true;
-              res.destroy();
-              if (hops >= MAX_REDIRECTS) {
-                reject(
-                  new Error(
-                    `Download failed: more than ${MAX_REDIRECTS} redirects from ${url.split("?")[0]}`,
-                  ),
-                );
-                return;
-              }
-              try {
-                follow(redirectTarget(location, u), hops + 1);
-              } catch (error) {
-                reject(error);
-              }
-              return;
+      const discard = (res: IncomingMessage) => {
+        responseDiscarded = true;
+        res.destroy();
+      };
+      const onResponse = (res: IncomingMessage) => {
+        activeResponse = res;
+        const plan = planResponse(res, offset);
+        if (plan.kind === "refuse") {
+          discard(res);
+          reject(new Error(`Download failed: HTTP ${plan.status}`));
+        } else if (plan.kind === "redirect") {
+          discard(res);
+          if (hops >= MAX_REDIRECTS) {
+            reject(
+              new Error(
+                `Download failed: more than ${MAX_REDIRECTS} redirects from ${url.split("?")[0]}`,
+              ),
+            );
+          } else {
+            try {
+              follow(redirectTarget(plan.location, u), hops + 1);
+            } catch (error) {
+              reject(error);
             }
           }
-          const range = res.statusCode === 206 ? contentRange(res.headers["content-range"]) : null;
-          const resumed = offset > 0 && range?.start === offset;
-          if (res.statusCode !== 200 && !resumed) {
-            responseDiscarded = true;
-            res.destroy();
-            reject(new Error(`Download failed: HTTP ${res.statusCode}`));
-            return;
-          }
-          const start = resumed ? offset : 0;
-          const length = byteCount(res.headers["content-length"]);
-          const total = resumed ? (range?.total ?? null) : length;
-          state.received = start;
-          state.total = total;
-          const meter = measureDownload(options, start, total);
-          const file = createWriteStream(tmp, { flags: resumed ? "a" : "w" });
+        } else {
           responsePipelineStarted = true;
-          const transfer = pipeline(res, meter.stream, file);
-          transfer
-            .then(() => {
-              state.received = meter.received();
-              meter.complete();
-              resolve();
-            })
-            .catch(async (err) => {
-              // Chunks still buffered in the destroyed file stream never reach disk.
-              if (!file.closed) await once(file, "close").catch(() => {});
-              state.received = fileSize(tmp);
-              reject(requestError ?? err);
-            });
-        });
+          writeBody(res, tmp, plan, state, options).then(resolve, (err) =>
+            reject(requestError ?? err),
+          );
+        }
+      };
+      let request: ClientRequest;
+      try {
+        request = getUrl(u, options.signal, offset, onResponse);
       } catch (error) {
         reject(error);
         return;
