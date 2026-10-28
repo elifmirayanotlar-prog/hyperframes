@@ -115,10 +115,20 @@ export async function launchManagedBrowser(
       !sandboxed &&
       (machServiceDenied(normalizeErrorMessage(error)) || pipeLaunchClosedOnMac(error));
     if (!unnamedSeatbelt)
-      throw await withStartupDiagnosis(withRemediation(error), puppeteer, options, diagnose);
+      throw await withStartupDiagnosis(
+        withRemediation(error, options.executablePath),
+        puppeteer,
+        options,
+        diagnose,
+      );
     return launchOwnedBrowser(puppeteer, oneProcessOverPipe(options)).catch(
       async (retryError: unknown) => {
-        throw await withStartupDiagnosis(withRemediation(retryError), puppeteer, options, diagnose);
+        throw await withStartupDiagnosis(
+          withRemediation(retryError, options.executablePath),
+          puppeteer,
+          options,
+          diagnose,
+        );
       },
     );
   }
@@ -132,7 +142,7 @@ async function withStartupDiagnosis(
 ): Promise<unknown> {
   if (!diagnose || !options.executablePath || options.signal?.aborted || shutdown) return error;
   if (!(error instanceof Error)) return error;
-  if (sandboxDeniedRemediation(normalizeErrorMessage(error))) return error;
+  if (sandboxDeniedRemediation(normalizeErrorMessage(error)) || spawnRefused(error)) return error;
   const args = await (async () =>
     puppeteer.defaultArgs({
       headless: options.headless ?? true,
@@ -148,7 +158,22 @@ async function withStartupDiagnosis(
   }
 }
 
-function withRemediation(error: unknown): unknown {
+/** Windows' "spawn UNKNOWN": the system refused to run the browser file and Node has no name for why. */
+function spawnRefused(error: unknown): NodeJS.ErrnoException | undefined {
+  const cause = error instanceof Error ? (error.cause ?? error) : undefined;
+  const refused = cause as NodeJS.ErrnoException | undefined;
+  return refused?.syscall === "spawn" && refused.code === "UNKNOWN" ? refused : undefined;
+}
+
+function withRemediation(error: unknown, executablePath?: string): unknown {
+  const refused = spawnRefused(error);
+  if (refused)
+    return new Error(
+      `Windows refused to start the browser${executablePath ? ` at ${executablePath}` : ""} (error ${refused.errno ?? "unknown"}, spawn UNKNOWN). ` +
+        "Security software may be blocking it, or the computer may be out of memory. " +
+        "Close other apps and retry; if it persists, run `hyperframes browser ensure --force` to download it again.",
+      { cause: error },
+    );
   const remediation = sandboxDeniedRemediation(normalizeErrorMessage(error));
   return remediation ? new Error(remediation, { cause: error }) : error;
 }
