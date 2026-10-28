@@ -1764,7 +1764,9 @@ export function normalizeStageCode(stage: string): string {
  * A Chrome launch failure is an environment problem, not a composition bug: the exact remediation for a Linux/WSL
  * sandbox or shared-library failure, a macOS <13 dyld crash, or a Windows STATUS_STACK_BUFFER_OVERRUN, in that order.
  */
-function chromeLaunchFailure(message: string): { title: string; remediation: string } | null {
+export function chromeLaunchFailure(
+  message: string,
+): { title: string; remediation: string } | null {
   const detectors = [
     sandboxDeniedRemediation,
     chromeLaunchRemediation,
