@@ -414,6 +414,24 @@ describe("persistTimelineBatchEdit", () => {
     ).rejects.toThrow("Unable to patch timeline element ghost in index.html");
     expect(writes).toHaveLength(0);
   });
+
+  it("names which lookups a missing clip had, never their values", async () => {
+    stubReadFileContent(SOURCE);
+    const mount = moveMember("ghost", 3, 0, 2);
+    mount.element = {
+      ...mount.element,
+      domId: "intro__hf2",
+      hfId: "hf-zz9q",
+      sourceFile: "compositions/intro.html",
+    };
+    await expect(persistTimelineBatchEdit(batchInput([mount], []))).rejects.toThrow(
+      "(by hf-id, runtime-renamed id; file from the clip)",
+    );
+    const plain = moveMember("ghost", 3, 0, 2);
+    await expect(persistTimelineBatchEdit(batchInput([plain], []))).rejects.toThrow(
+      "(by id; no file on the clip)",
+    );
+  });
 });
 
 describe("persistTimelineEdit", () => {

@@ -387,6 +387,25 @@ export function operationChanges(
   }));
 }
 
+const RENAMED_MOUNT = /__hf\d+"?\]?$/;
+
+/** The kinds of lookup a target that missed had, never their values, so a log can tell missing clips apart. */
+function missedLookups(
+  element: Pick<TimelineElement, "sourceFile">,
+  target: PatchTarget,
+): string {
+  const kinds = [
+    target.hfId && "hf-id",
+    target.id && (RENAMED_MOUNT.test(target.id) ? "runtime-renamed id" : "id"),
+    target.selector?.startsWith("[data-composition-id=")
+      ? RENAMED_MOUNT.test(target.selector)
+        ? "runtime-renamed composition id"
+        : "composition id"
+      : target.selector && "class",
+  ].filter(Boolean);
+  return `by ${kinds.join(", ")}; ${element.sourceFile ? "file from the clip" : "no file on the clip"}`;
+}
+
 /** Patches each change into `source`, failing loudly on a target the file does not hold. */
 export function patchTimelineChangesInSource(
   source: string,
@@ -399,7 +418,9 @@ export function patchTimelineChangesInSource(
     if (!target) throw new Error(`Timeline element ${element.id} is missing a patchable target`);
     // Resolve first: a member already at its target values patches to the same string, a missing one must throw.
     if (!findTagByTarget(current, target)) {
-      throw new Error(`Unable to patch timeline element ${element.id} in ${targetPath}`);
+      throw new Error(
+        `Unable to patch timeline element ${element.id} in ${targetPath} (${missedLookups(element, target)})`,
+      );
     }
     current = buildPatches(current, target);
   }
