@@ -402,6 +402,10 @@ it("runs the dense overlap grid in page tasks of at most 8 samples, keeping each
   expect(lines).toContain("[hyperframes] check: samples 1/1");
   const batches = Math.ceil(denseAudits.length / 8);
   expect(lines).toContain(`[hyperframes] check: overlap ${batches}/${batches}`);
+  for (const step of [1, 2, 3]) expect(lines).toContain(`[hyperframes] check: analyze ${step}/3`);
+  expect(lines.indexOf("[hyperframes] check: analyze 1/3")).toBeGreaterThan(
+    lines.indexOf(`[hyperframes] check: overlap ${batches}/${batches}`),
+  );
   expect(denseAudits.length).toBeGreaterThan(10);
   const tasks = new Map<number, number>();
   for (const calls of denseAudits) tasks.set(calls, (tasks.get(calls) ?? 0) + 1);

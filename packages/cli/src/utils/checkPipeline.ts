@@ -1534,6 +1534,8 @@ export async function runAuditGrid(
   );
   const seekLoopMs = Date.now() - seekLoopStart;
 
+  // The passes below re-seek frames and print nothing of their own, so each says it has begun.
+  report("analyze", 1, 3);
   let motionIssues = plan.preflightIssues;
   if (motion.kind === "valid" && plan.assertions.length > 0 && collected.motionFrames.length > 0) {
     const canvas = await driver.getCanvas();
@@ -1544,6 +1546,7 @@ export async function runAuditGrid(
     }
     motionIssues = [...motionIssues, ...(await driver.anchorMotionIssues(evaluated))];
   }
+  report("analyze", 2, 3);
   const userPicked = new Set(grid.userPickedSamples);
   const noTimeline = await driver.hasNoTimelineDeclaration();
   const sweepSamples = collected.layoutStateSignatures.filter(
@@ -1566,6 +1569,7 @@ export async function runAuditGrid(
   );
   const offPivotFindings = detectOffPivotRotation(collected.indicatorFrames);
   const contrast = buildContrastResults(collected.contrastEntries);
+  report("analyze", 3, 3);
   const craft = craftEnabled(driver, options)
     ? await auditCraft(
         {
