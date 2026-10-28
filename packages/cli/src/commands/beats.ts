@@ -67,7 +67,6 @@ function resolveMusicTarget(project: ProjectDir): { rel: string; audioPath: stri
   return { rel, audioPath };
 }
 
-/** No track is an answer for --json (nothing to detect), not a failure; a person still gets the how-to. */
 function answerNoTrack(json: boolean): void {
   if (!json) fail(NO_MUSIC_TRACK);
   console.log(JSON.stringify({ ok: true, track: null, file: null, count: 0, bpm: null }, null, 2));
