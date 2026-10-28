@@ -2225,11 +2225,10 @@ export function resolveDeSingleMinFrames(env: NodeJS.ProcessEnv): number {
  * DE priority inversion predicate: should a multi-worker render drop to
  * single-worker verified drawElement streaming?
  *
- * Benchmarked 2026-07-08: above ~900 frames DE-single beats screenshot-parallel
- * at every worker count (2,380f: 66s vs 109–127s at W2–W5); below it DE's fixed
- * init cost (verify + dedup arming) loses by a small margin. Only fires for the
- * exact benchmarked configuration: default-on DE, mp4, streaming-eligible,
- * no compile gate, no forced screenshot.
+ * Opt-in (see resolveDeSingleMinFrames): re-measured on hardware-GL Macs, one
+ * drawElement worker was ~25% slower than 4 screenshot workers at 1,271 and 9,000
+ * frames. Only fires for default-on DE, mp4, streaming-eligible, no compile gate,
+ * no forced screenshot.
  */
 export function shouldPreferSingleWorkerDrawElement(args: {
   workerCount: number;
