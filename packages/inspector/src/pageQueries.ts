@@ -25,6 +25,7 @@ type InspectedWindow = Window & {
     timeline(request: TimelineRequest): TimelineRuntimeResult;
   };
   __hfLiveInspection?: { generation: string; project: string };
+  __hfHoldScenes?: (names: string[], holder?: string) => Promise<void>;
   __player?: {
     renderSeek(time: number, options: { exact: boolean }): void;
     getTime(): number;
@@ -89,4 +90,18 @@ export function timelinePage(request: TimelineRequest): PageTimeline {
 
 export function liveGenerationPage(): string | null {
   return (window as InspectedWindow).__hfLiveInspection?.generation ?? null;
+}
+
+/** Mounts every scene the preview parked away from the playhead; answers the scenes still parked. */
+export async function holdEveryScenePage(): Promise<string[]> {
+  const hold = (window as InspectedWindow).__hfHoldScenes;
+  if (!hold) return [];
+  const sceneOf = (el: Element) => el.getAttribute("data-hf-scene") ?? "";
+  const names = new Set(Array.from(document.querySelectorAll("[data-hf-scene]"), sceneOf));
+  await hold([...names], "inspection");
+  return Array.from(document.querySelectorAll("[data-hf-parked-scene]"), sceneOf);
+}
+
+export async function releaseEveryScenePage(): Promise<void> {
+  await (window as InspectedWindow).__hfHoldScenes?.([], "inspection");
 }
