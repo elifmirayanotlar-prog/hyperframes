@@ -263,14 +263,32 @@ function collectCssCustomProperties(css: string, customProperties: Map<string, s
   });
 }
 
+const FONT_SIZE_KEYWORD =
+  /^(?:xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|smaller|larger)$/i;
+const FONT_SIZE_TOKEN = /^(?:\d*\.?\d+[a-z%]+|(?:calc|min|max|clamp|var)\(.*\))(?:\/\S+)?$/i;
+
+/** The family list of a `font` shorthand: what follows its `<size>[/<line-height>]`, after any style, variant, weight
+ * and stretch. A system-font keyword (`caption`, `menu`) has no size and names no family. */
+function fontShorthandFamilies(value: string): string {
+  for (const token of value.matchAll(/(?:[^\s(]|\([^)]*\))+/g)) {
+    const size = token[0].split("/")[0] ?? "";
+    if (FONT_SIZE_KEYWORD.test(size) || FONT_SIZE_TOKEN.test(token[0])) {
+      return value.slice(token.index + token[0].length).trim();
+    }
+  }
+  return "";
+}
+
 function* iterateCssRootFontFamilyDeclarations(
   root: postcss.Root,
 ): Generator<FontFamilyDeclaration> {
   const declarations: FontFamilyDeclaration[] = [];
   root.walkDecls((decl) => {
-    if (decl.prop.toLowerCase() !== "font-family") return;
+    const prop = decl.prop.toLowerCase();
+    if (prop !== "font-family" && prop !== "font") return;
     if (isFontFaceDeclaration(decl)) return;
-    const declaration = decl.value;
+    const declaration = prop === "font" ? fontShorthandFamilies(decl.value) : decl.value;
+    if (!declaration) return;
     declarations.push({
       surface: "font-family",
       declaration,
@@ -281,7 +299,7 @@ function* iterateCssRootFontFamilyDeclarations(
 }
 
 function* iterateCssFontFamilyDeclarations(css: string): Generator<FontFamilyDeclaration> {
-  if (!/font-family/i.test(css)) return;
+  if (!/font(?:-family)?\s*:/i.test(css)) return;
   const root = parseCssRoot(css);
   if (!root) return;
   yield* iterateCssRootFontFamilyDeclarations(root);
