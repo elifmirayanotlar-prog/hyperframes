@@ -10,7 +10,7 @@ import { quantizeTimeToFrame } from "@hyperframes/core";
 const SCAN_CHUNK_FRAMES = 240;
 
 /** Longest the scan may hold back the first frame; above it the whole render captures by screenshot. */
-const SCAN_BUDGET_MS = 60_000;
+const SCAN_BUDGET_MS = 120_000;
 
 /**
  * Above this share of risk frames the second browser and the switching cost outweigh the fast
