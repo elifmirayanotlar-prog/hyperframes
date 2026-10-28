@@ -333,6 +333,14 @@ describe.skipIf(!HAS_FFMPEG)("MP4 and WebM sources whose first timestamp is afte
       join(dir, "late.webm"),
     ]);
     ffmpeg([...picture(3.125), ...h264, "-output_ts_offset", "1.5", join(dir, "edit-list.mp4")]);
+    ffmpeg([
+      "-itsoffset",
+      "0.5",
+      ...picture(3),
+      ...["-f", "lavfi", "-i", "sine=frequency=440:duration=3.5"],
+      ...["-c:v", "libvpx-vp9", "-deadline", "realtime", "-c:a", "libopus"],
+      join(dir, "late-with-audio.webm"),
+    ]);
   }, 60_000);
 
   afterAll(() => rmSync(dir, { recursive: true, force: true }), 30_000);
@@ -347,14 +355,18 @@ describe.skipIf(!HAS_FFMPEG)("MP4 and WebM sources whose first timestamp is afte
 
   // The browser counts these files from timestamp 0; FFmpeg counts from the first one.
   it.each([
-    { source: "fragment-cut.mp4", firstFrameAt: 0.25 },
-    { source: "late.webm", firstFrameAt: 0.52 },
-    { source: "edit-list.mp4", firstFrameAt: 1.5 },
+    { source: "fragment-cut.mp4", firstFrameAt: 0.25, seconds: 3.125 },
+    { source: "late.webm", firstFrameAt: 0.52, seconds: 3 },
+    { source: "edit-list.mp4", firstFrameAt: 1.5, seconds: 3.125 },
+    // Opus starts 7 ms before 0, so the browser's timeline starts there too.
+    { source: "late-with-audio.webm", firstFrameAt: 0.507, seconds: 3 },
   ])(
     "$source extracts every frame the browser plays, each at its timestamp",
-    async ({ source, firstFrameAt }) => {
+    async ({ source, firstFrameAt, seconds }) => {
       const path = join(dir, source);
       const playable = resolvePlayableVideoDuration(await extractMediaMetadata(path));
+      // The browser plays the clip to its last frame, not for its length counted from timestamp 0.
+      expect(playable).toBeCloseTo(firstFrameAt + seconds, 2);
       const extracted = await extractVideoFramesRange(path, source, 0, playable, {
         fps: 30,
         outputDir: join(dir, `frames-${source}`),
