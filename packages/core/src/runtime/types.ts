@@ -276,6 +276,12 @@ export type RuntimePreviewHealthMessage = {
     choppy: boolean;
     fps: number;
     worstFrameMs: number;
+    /** Frames due but not drawn, and the time a playing video waited for data, each as a share of the window. */
+    skippedShare: number;
+    waitingShare: number;
+    /** The median and 95th percentile of the gaps between the runtime's ticks, in ms. */
+    gapP50Ms: number;
+    gapP95Ms: number;
     mode: "play";
   } | null;
 };
