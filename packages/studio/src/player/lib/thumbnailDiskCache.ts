@@ -218,4 +218,6 @@ export function resetStoredThumbnailsForTests(): void {
   saveTimer = undefined;
   index = undefined;
   warned = false;
+  dropped.clear();
+  sourcesThisTabMovedOn.clear();
 }
