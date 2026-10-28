@@ -183,6 +183,8 @@ export interface StudioApiAdapter {
     bufferSize?: string;
     videoFrameFormat?: "auto" | "jpg" | "png";
     hdrMode?: "auto" | "force-hdr" | "force-sdr";
+    /** MOV only: 4444 keeps alpha, the others are 4:2:2 without it. */
+    proresProfile?: "4444" | "hq" | "422" | "lt" | "proxy";
     jobId: string;
     /**
      * The triggering browser profile has telemetry disabled (localStorage
