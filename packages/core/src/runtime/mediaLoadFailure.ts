@@ -1,4 +1,5 @@
 import { postRuntimeMessage } from "./bridge";
+import { isAudioElement, isSourceElement } from "./domRealm";
 import { isRenderMode } from "./mediaProxy";
 import { RUNTIME_MEDIA_LOAD_FAILED, type MediaLoadStage } from "./protocol";
 import type { RuntimeJson } from "./types";
@@ -56,9 +57,8 @@ export function reportMediaLoadFailure(
 export function watchAudioLoadErrors(doc: Document): () => void {
   const onError = (event: Event) => {
     const target = event.target;
-    const el = target instanceof HTMLSourceElement ? target.parentElement : target;
-    if (el instanceof HTMLAudioElement)
-      reportMediaLoadFailure(el, "element", el.error?.code ?? null);
+    const el = isSourceElement(target) ? target.parentElement : target;
+    if (isAudioElement(el)) reportMediaLoadFailure(el, "element", el.error?.code ?? null);
   };
   doc.addEventListener("error", onError, true);
   return () => doc.removeEventListener("error", onError, true);
