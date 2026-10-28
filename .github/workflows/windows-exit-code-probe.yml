@@ -1,0 +1,46 @@
+name: Windows exit code probe
+
+permissions:
+  contents: read
+
+env:
+  HYPERFRAMES_NO_TELEMETRY: "1"
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/windows-exit-code-probe.yml
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: check and snapshot exit codes on windows-latest
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Run the commands the way a reporter did
+        shell: pwsh
+        run: |
+          $version = '0.8.210'
+          $root = "$env:RUNNER_TEMP\exit-probe"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Set-Location $root
+          npx --yes "hyperframes@$version" init blank1 --example blank --non-interactive --skip-skills | Out-Null
+          Set-Location blank1
+          $launcher = "$root\run.mjs"
+          @'
+          import { spawnSync } from "node:child_process";
+          const [mode, ...args] = process.argv.slice(2);
+          const result = spawnSync("npx", ["--yes", ...args], { shell: true, encoding: "utf8", stdio: mode === "piped" ? "pipe" : "inherit", windowsHide: true });
+          console.log(`exit=${result.status} signal=${result.signal} error=${result.error?.message ?? ""}`);
+          if (mode === "piped") console.log(`stdout tail: ${(result.stdout ?? "").slice(-300)}\nstderr tail: ${(result.stderr ?? "").slice(-1200)}`);
+          '@ | Set-Content -Encoding utf8 $launcher
+          foreach ($mode in @('inherit', 'piped')) {
+            Write-Host "=== check --json ($mode)"
+            node $launcher $mode "hyperframes@$version" check --json
+            Write-Host "=== snapshot ($mode)"
+            node $launcher $mode "hyperframes@$version" snapshot --at 0.5,1 --no-end --describe false -o boards/stills
+          }
