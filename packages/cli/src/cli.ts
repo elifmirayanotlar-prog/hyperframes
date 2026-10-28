@@ -548,6 +548,17 @@ async function showRequestedUsage(print: (text: string) => void): Promise<void> 
   return showUsage(requested.command, requested.parent, print);
 }
 
+// citty would load every command looking for an alias before it gives up on an unknown name.
+async function rejectUnknownTopLevelCommand(): Promise<void> {
+  const word = argv[0];
+  if (!word || word.startsWith("-") || Object.hasOwn(subCommands, word)) return;
+  throw await unknownCommandError({
+    command: main as CommandDef,
+    path: [],
+    unknownSubcommand: word,
+  });
+}
+
 function isCittyError(error: unknown, code: string): boolean {
   return (
     error instanceof Error &&
@@ -577,7 +588,10 @@ async function executeCli(): Promise<void> {
   let result: CommandResult = { exitCode: 0, kind: "success" };
   try {
     if (isHelp) await showRequestedUsage(console.log);
-    else await runCommand(main, { rawArgs: argv });
+    else {
+      await rejectUnknownTopLevelCommand();
+      await runCommand(main, { rawArgs: argv });
+    }
   } catch (caught) {
     const error = isCittyError(caught, "E_UNKNOWN_COMMAND")
       ? await unknownCommandError(await resolveCommandUsage(main as CommandDef, argv))
