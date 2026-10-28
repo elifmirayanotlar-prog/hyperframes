@@ -100,6 +100,35 @@ function clicks(seconds: number, restFrom = Infinity, restTo = Infinity): AudioS
   return { sampleRate: RATE, channels: [samples] };
 }
 
+// xorshift32: the clicks' LCG repeats in a short cycle, which the tracker would hear as a pulse
+let hissState = 0x9e3779b9;
+function hiss(): number {
+  hissState ^= hissState << 13;
+  hissState ^= hissState >>> 17;
+  hissState ^= hissState << 5;
+  return (hissState >>> 0) / 2 ** 31 - 1;
+}
+
+/** 120 BPM: a kick on every beat, a hat between, a held bass note; `db` quieter from `quietFrom` on. */
+function groove(seconds: number, quietFrom: number, db: number): AudioSignal {
+  const x = new Float32Array(seconds * RATE);
+  for (let k = 0; k * 0.5 + 0.25 < seconds; k++) {
+    const at = Math.round((0.25 + k * 0.5) * RATE);
+    for (let i = 0; i < 0.2 * RATE && at + i < x.length; i++) {
+      const sweep = 50 + 100 * Math.exp(-i / (0.03 * RATE));
+      x[at + i]! += 0.6 * Math.sin((2 * Math.PI * sweep * i) / RATE) * Math.exp(-i / (0.06 * RATE));
+    }
+    const off = at + 0.25 * RATE;
+    for (let i = 0; i < 0.04 * RATE && off + i < x.length; i++)
+      x[off + i]! += 0.15 * hiss() * Math.exp(-i / (0.008 * RATE));
+  }
+  for (let i = 0; i < x.length; i++) {
+    x[i]! += 0.1 * Math.sin((2 * Math.PI * 55 * i) / RATE);
+    if (i >= quietFrom * RATE) x[i]! *= 10 ** (-db / 20);
+  }
+  return { sampleRate: RATE, channels: [x] };
+}
+
 const answering = (id: string, times: number[]): AudioAnalysisProvider<AudioSignal> => ({
   id,
   local: true,
@@ -140,7 +169,7 @@ describe("analyzeSignal beats, from any provider", () => {
     expect(beats.snap).toBeUndefined();
   });
 
-  it("marks every beat that falls in silence as unheard, from any provider, and keeps it in the grid", async () => {
+  it("marks every beat in digital silence as unheard, from any provider, and keeps it in the grid", async () => {
     const signal = clicks(12, 4, 6);
     const quiet = silence(signal);
     const inQuiet = (t: number) => quiet.some((s) => t >= s.start && t < s.end);
@@ -164,12 +193,8 @@ describe("analyzeSignal beats, from any provider", () => {
 
   it("marks beats unheard where noise plays with no pulse, though it is far from silence", async () => {
     const signal = clicks(12, 4, 8);
-    let state = 11;
     const samples = signal.channels[0]!;
-    for (let i = 4 * RATE; i < 8 * RATE; i++) {
-      state = (state * 1_103_515_245 + 12_345) % 2_147_483_648;
-      samples[i] = 0.05 * ((state / 2_147_483_648) * 2 - 1);
-    }
+    for (let i = 4 * RATE; i < 8 * RATE; i++) samples[i] = 0.05 * hiss();
     expect(silence(signal).some((s) => s.start < 8 && s.end > 4)).toBe(false);
     const grid = Array.from({ length: 24 }, (_, k) => 0.25 + k * 0.5);
     const beats = (
@@ -182,20 +207,15 @@ describe("analyzeSignal beats, from any provider", () => {
     );
   });
 
-  it("keeps a beat heard when only its own onset is missing, as at a drop the detector misses", async () => {
-    // a held tone under the clicks, so the gap is not silence: only the onset is missing
-    const signal = clicks(12, 6.2, 6.3);
-    const samples = signal.channels[0]!;
-    for (let i = 0; i < samples.length; i++)
-      samples[i]! += 0.05 * Math.sin((2 * Math.PI * 220 * i) / RATE);
-    expect(silence(signal)).toEqual([]);
-    const grid = Array.from({ length: 24 }, (_, k) => 0.25 + k * 0.5);
+  it.each([30, 45])("keeps beats heard in a section %i dB under the loudest", async (db) => {
+    const signal = groove(24, 12, db);
+    const grid = Array.from({ length: 48 }, (_, k) => 0.25 + k * 0.5);
     const beats = (
       await analyzeSignal(signal, { capabilities: ["beats"] }, [answering("grid", grid)])
     ).values.beats as MarkedBeats;
-    const missing = beats.times.findIndex((t) => Math.abs(t - 6.25) < 0.05);
-    expect(missing).toBeGreaterThan(0);
-    expect(beats.unheard[missing]).toBe(false);
+    const quiet = beats.unheard.filter((_, k) => beats.times[k]! > 12.1 && beats.times[k]! < 23.5);
+    expect(quiet.length).toBeGreaterThan(18);
+    expect(quiet.some(Boolean)).toBe(false);
   });
 
   it("marks downbeats the same way, and moves them by the bar's own beat", async () => {

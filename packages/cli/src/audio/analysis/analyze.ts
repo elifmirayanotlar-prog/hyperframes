@@ -1,12 +1,13 @@
 import {
+  localBeatEvidence,
   medianInterval,
-  onsets,
   rhythm,
   runLadder,
   signalDuration,
   signalProvider,
   silence,
   snapper,
+  STEADY_BEAT_CONFIDENCE,
   tempoOf,
   type AnalysisQuality,
   type AudioAnalysisProvider,
@@ -174,12 +175,14 @@ export interface MarkedBeats {
   snap?: SnapReport;
 }
 
-/** The tracker places a beat within a frame or two of the onset it follows; 50 ms allows a provider's offset. */
-const NEAR_ONSET_SECONDS = 0.05;
+/** Under this a beat sits in digital silence, whatever the rest of the clip does. */
+const DIGITAL_SILENCE_DB = -80;
+/** A beat whose onset stands this far over its span is heard even where the span keeps no steady beat (narration). */
+const HEARD_LIFT = 1.5;
 
 const roundTime = (t: number) => Math.round(t * 1000) / 1000;
 
-/** Beats move onto the signal's own; a beat is unheard in silence, or where two in a row have no onset. */
+/** Beats move onto the signal's own; unheard in digital silence, or with neither a steady beat around nor an onset. */
 function settled(
   capability: AudioCapability,
   result: LadderResult,
@@ -188,33 +191,36 @@ function settled(
   if (capability !== "beats" && capability !== "downbeats") return result;
   const value = result.value as Omit<MarkedBeats, "unheard"> | null;
   if (!value?.times) return result;
-  const onSignal =
-    result.provenance === "signal" ? value : snappedToSignal(capability, value, signal);
-  const quiet = silence(signal);
-  const hits = onsets(signal).events.map((event) => event.t);
-  const bare = onSignal.times.map(
-    (t) => !hits.some((hit) => Math.abs(hit - t) <= NEAR_ONSET_SECONDS),
+  const beat = beatOf(capability, value, signal);
+  const onSignal = result.provenance === "signal" ? value : snappedToSignal(value, signal, beat);
+  const quiet = silence(signal, { thresholdDb: DIGITAL_SILENCE_DB });
+  const evidence = localBeatEvidence(
+    signal,
+    onSignal.times,
+    capability === "downbeats" ? beat : undefined,
   );
   const unheard = onSignal.times.map(
     (t, i) =>
       quiet.some((span) => t >= span.start && t < span.end) ||
-      (bare[i]! && (bare[i - 1] === true || bare[i + 1] === true)),
+      (evidence[i]!.confidence < STEADY_BEAT_CONFIDENCE && evidence[i]!.lift < HEARD_LIFT),
   );
   return { ...result, value: { ...onSignal, unheard } };
 }
 
 /** The beat is the answer's own beat interval, or its bar over its meter; the signal's when neither is known. */
-function snappedToSignal(
+function beatOf(
   capability: "beats" | "downbeats",
   value: Omit<MarkedBeats, "unheard">,
   signal: AudioSignal,
-) {
-  const measured = rhythm(signal).beats.times;
+): number {
   const interval = medianInterval(value.times);
   const own =
     capability === "beats" ? interval : interval && value.meter ? interval / value.meter : null;
-  const beat = own ?? medianInterval(measured) ?? 0;
-  const onBeat = snapper(measured, beat / 4, "signal beats");
+  return own ?? medianInterval(rhythm(signal).beats.times) ?? 0;
+}
+
+function snappedToSignal(value: Omit<MarkedBeats, "unheard">, signal: AudioSignal, beat: number) {
+  const onBeat = snapper(rhythm(signal).beats.times, beat / 4, "signal beats");
   return {
     ...value,
     times: value.times.map((t) => roundTime(onBeat.snap(t))),

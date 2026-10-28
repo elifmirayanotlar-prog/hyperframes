@@ -236,7 +236,7 @@ function beatsBetween(value: MarkedBeats, from: number, to: number): MarkedBeats
   };
 }
 
-/** One heard onset is not a pulse: a window answers beats only when two of its beats are heard. */
+/** A window keeps the clip's beats when at least two, and at least half, of them are heard there. */
 const PULSE_BEATS = 2;
 
 const heardTimes = (beats: MarkedBeats) => beats.times.filter((_, i) => !beats.unheard[i]);
@@ -271,7 +271,8 @@ const CUTS: Partial<Record<AudioCapability, (value: unknown, window: RhythmWindo
 const beatsIn = (values: Analysis["values"], from: number, to: number) =>
   values.beats ? beatsBetween(values.beats as MarkedBeats, from, to) : null;
 
-const pulseIn = (beats: MarkedBeats | null) => !!beats && heardTimes(beats).length >= PULSE_BEATS;
+const pulseIn = (beats: MarkedBeats | null) =>
+  !!beats && heardTimes(beats).length >= Math.max(PULSE_BEATS, beats.times.length / 2);
 
 function rhythmBetween(
   values: Analysis["values"],
