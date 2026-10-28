@@ -2,6 +2,9 @@ export const RUNTIME_PROTOCOL_VERSION = 1 as const;
 
 export const RUNTIME_FILLER = "hf-runtime-filler";
 
+/** The diagnostic code the runtime posts when a clip's media fails to load in the preview (mediaLoadFailure.ts). */
+export const RUNTIME_MEDIA_LOAD_FAILED = "runtime_media_load_failed";
+
 export const RUNTIME_PROTOCOL_CAPABILITIES = [
   "seconds-time",
   "rational-fps",

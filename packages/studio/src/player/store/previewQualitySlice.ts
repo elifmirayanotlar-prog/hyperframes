@@ -35,6 +35,17 @@ export interface PreviewFacts {
   copiesReady: boolean;
 }
 
+/** A clip whose media failed to load in the preview, as the runtime reported it: classes and numbers, never a name. */
+export interface MediaLoadFailure {
+  elementId: string | null;
+  kind: string;
+  stage: "fetch" | "decode" | "element";
+  /** The HTTP status of a fetch that answered, or the element's MediaError code. */
+  code: number | null;
+  bytes: number | null;
+  extension: string | null;
+}
+
 export type PreviewQualityChosenBy = "person" | "app";
 
 export interface PreviewQualitySlice {
@@ -53,6 +64,9 @@ export interface PreviewQualitySlice {
   setPlaybackHealth: (health: PlaybackHealth | null) => void;
   previewFacts: PreviewFacts | null;
   setPreviewFacts: (facts: PreviewFacts | null) => void;
+  /** The latest failed media load; each report is a new object, so a subscriber sees every one. */
+  mediaLoadFailure: MediaLoadFailure | null;
+  setMediaLoadFailure: (failure: MediaLoadFailure | null) => void;
   /** Bumped by requestPreviewFacts; the preview owner forwards each bump and the answer lands in previewFacts. */
   previewFactsRequests: number;
   requestPreviewFacts: () => void;
@@ -87,6 +101,8 @@ export function createPreviewQualitySlice(
     setPlaybackHealth: (playbackHealth) => set({ playbackHealth }),
     previewFacts: null,
     setPreviewFacts: (previewFacts) => set({ previewFacts }),
+    mediaLoadFailure: null,
+    setMediaLoadFailure: (mediaLoadFailure) => set({ mediaLoadFailure }),
     previewFactsRequests: 0,
     requestPreviewFacts: () =>
       set((state) => ({ previewFactsRequests: state.previewFactsRequests + 1 })),
@@ -127,6 +143,25 @@ export function parsePlaybackHealth(value: unknown): PlaybackHealth | null {
     gapP50Ms: optionalNumber(extra.gapP50Ms),
     gapP95Ms: optionalNumber(extra.gapP95Ms),
     mode: "play",
+  };
+}
+
+const STAGES = ["fetch", "decode", "element"] as const;
+const numberOrNull = (n: unknown) => (typeof n === "number" ? n : null);
+const stringOrNull = (s: unknown) => (typeof s === "string" ? s : null);
+
+export function parseMediaLoadFailure(value: unknown): MediaLoadFailure | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { elementId, kind, stage, code, bytes, extension } = value as Record<string, unknown>;
+  const known = STAGES.find((s) => s === stage);
+  if (!known || typeof kind !== "string") return null;
+  return {
+    elementId: stringOrNull(elementId),
+    kind,
+    stage: known,
+    code: numberOrNull(code),
+    bytes: numberOrNull(bytes),
+    extension: stringOrNull(extension),
   };
 }
 
