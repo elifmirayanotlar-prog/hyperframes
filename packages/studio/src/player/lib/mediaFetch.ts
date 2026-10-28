@@ -71,7 +71,9 @@ const typedFailure = (reader: MediaReader, error: unknown, start: number) =>
  * A stalled body ignores every signal, so a silent one is aborted. The wait for the answer is not
  * timed: it includes Chrome's queue for a connection, which streaming previews can hold for long.
  */
-function watchedRequest(reader: MediaReader, parents: readonly AbortSignal[]) {
+type CleanEnd = { ended: (start: number) => void; atTarget: AbortSignal | null | undefined };
+
+function watchedRequest(reader: MediaReader, parents: readonly AbortSignal[], end?: CleanEnd) {
   const controller = new AbortController();
   let stalled = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -102,7 +104,7 @@ function watchedRequest(reader: MediaReader, parents: readonly AbortSignal[]) {
     stalled
       ? new MediaFetchError(reader, null, "stalled", start)
       : typedFailure(reader, error, start);
-  return { signal: controller.signal, wait, done, failure };
+  return { signal: controller.signal, wait, done, failure, end };
 }
 
 type WatchedRequest = ReturnType<typeof watchedRequest>;
@@ -112,16 +114,17 @@ function typedBody(
   body: ReadableStream<Uint8Array>,
   start: number,
   request: WatchedRequest,
-  endedCleanly: (start: number) => void,
 ): ReadableStream<Uint8Array> {
   const source = body.getReader();
+  const stopped = () => request.end?.atTarget?.aborted && request.end.ended(start);
+  request.signal.addEventListener("abort", stopped, { once: true });
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const { done, value } = await request.wait(source.read());
         if (!done) return controller.enqueue(value);
         request.done();
-        endedCleanly(start);
+        request.end?.ended(start);
         controller.close();
       } catch (error) {
         request.done();
@@ -130,7 +133,6 @@ function typedBody(
     },
     cancel: (reason) => {
       request.done();
-      endedCleanly(start);
       return source.cancel(reason);
     },
   });
@@ -156,18 +158,13 @@ async function typedFetch(
   throw new MediaFetchError(reader, response.status, null, asked);
 }
 
-function typedResponse(
-  response: Response,
-  asked: number,
-  request: WatchedRequest,
-  endedCleanly: (start: number) => void,
-): Response {
+function typedResponse(response: Response, asked: number, request: WatchedRequest): Response {
   if (!response.body) {
     request.done();
     return response;
   }
   const { status, statusText, headers } = response;
-  const body = typedBody(response.body, status === 206 ? asked : 0, request, endedCleanly);
+  const body = typedBody(response.body, status === 206 ? asked : 0, request);
   return new Response(body, { status, statusText, headers });
 }
 
@@ -186,10 +183,11 @@ export function mediaUrlSourceOptions(reader: MediaReader) {
     const request = watchedRequest(
       reader,
       init?.signal ? [inFlightReads.signal, init.signal] : [inFlightReads.signal],
+      { ended: (start) => failuresByStart.delete(start), atTarget: init?.signal },
     );
     const response = await typedFetch(reader, input, sent ?? {}, asked, request);
     if (ranges !== "hidden") ranges = rangesReadable(sent, response) ? "readable" : "hidden";
-    return typedResponse(response, asked, request, (start) => failuresByStart.delete(start));
+    return typedResponse(response, asked, request);
   };
   const getRetryDelay = (_previousAttempts: number, error: unknown): number | null => {
     const start = error instanceof MediaFetchError ? error.start : null;
