@@ -205,6 +205,13 @@ describe("classify", () => {
     expect(classify(signal(3, speechLike)).value).toBe("voice");
   });
 
+  it("still calls speech voice when the stereo channels have opposite polarity", () => {
+    const speech = signal(3, speechLike);
+    const expected = classify(speech);
+    speech.channels.push(Float32Array.from(speech.channels[0]!, (sample) => -sample));
+    expect(classify(speech)).toEqual(expected);
+  });
+
   it("does not call speech-shaped noise voice: without a voice-range pitch it is an effect or a bed", () => {
     const short = classify(signal(3, unpitched));
     expect(short.value).toBe("sfx");

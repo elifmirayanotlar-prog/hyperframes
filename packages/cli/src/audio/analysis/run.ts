@@ -136,7 +136,12 @@ function coversPart({ window, clip }: AudioTarget): boolean {
 async function clipKind(target: AudioTarget, request: AnalyzeOptions, stream: AudioStreamInfo) {
   const decoded = await decodeAudio(target.path, target.clip!, stream);
   if (!decoded) return null;
-  return analyzeSignal(decoded.signal, { ...request, capabilities: ["kind"] });
+  return analyzeSignal(decoded.signal, {
+    ...request,
+    capabilities: ["kind"],
+    fileOffset: target.clip!.from,
+    context: undefined,
+  });
 }
 
 /** Analyzes the window, except a kind the window would misjudge, which comes from the whole clip. */
@@ -158,6 +163,8 @@ async function analyzeWindow(
     ...analysis,
     values: { ...analysis.values, kind: kind.values.kind },
     provenance: { ...analysis.provenance, ...kind.provenance },
+    ladder: { ...analysis.ladder, ...kind.ladder },
+    warnings: [...new Set([...analysis.warnings, ...kind.warnings])],
   };
 }
 

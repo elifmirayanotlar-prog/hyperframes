@@ -1,4 +1,4 @@
-/** The rate pitch is tracked at: 8 kHz mono keeps the 70–500 Hz search cheap. */
+/** The rate pitch is tracked at: 8 kHz keeps the 70–500 Hz search cheap. */
 export const PITCH_RATE = 8000;
 
 const FRAME = 320;
@@ -16,27 +16,29 @@ export interface PitchPoint {
 const MIN_LAG = Math.floor(PITCH_RATE / HIGH_HZ);
 const MAX_LAG = Math.ceil(PITCH_RATE / LOW_HZ);
 
-function voiced(pcm: Float32Array, start: number): boolean {
+function voiced(channels: readonly Float32Array[], start: number): boolean {
   let energy = 0;
-  for (let i = 0; i < FRAME; i++) energy += pcm[start + i]! ** 2;
-  return 10 * Math.log10(energy / FRAME + 1e-12) >= VOICED_DB;
+  for (const pcm of channels) for (let i = 0; i < FRAME; i++) energy += pcm[start + i]! ** 2;
+  return 10 * Math.log10(energy / (FRAME * channels.length) + 1e-12) >= VOICED_DB;
 }
 
-function difference(pcm: Float32Array, start: number, tau: number): number {
+function difference(channels: readonly Float32Array[], start: number, tau: number): number {
   let sum = 0;
-  for (let i = 0; i < FRAME; i++) {
-    const delta = pcm[start + i]! - pcm[start + i + tau]!;
-    sum += delta * delta;
+  for (const pcm of channels) {
+    for (let i = 0; i < FRAME; i++) {
+      const delta = pcm[start + i]! - pcm[start + i + tau]!;
+      sum += delta * delta;
+    }
   }
   return sum;
 }
 
 /** The first lag whose normalized difference dips under the threshold, followed down to its minimum; -1 if none. */
-function periodOf(pcm: Float32Array, start: number, d: Float64Array): number {
+function periodOf(channels: readonly Float32Array[], start: number, d: Float64Array): number {
   let running = 0;
   let lag = -1;
   for (let tau = 1; tau <= MAX_LAG; tau++) {
-    const sum = difference(pcm, start, tau);
+    const sum = difference(channels, start, tau);
     running += sum;
     d[tau] = running > 0 ? (sum * tau) / running : 1;
     if (lag === -1) {
@@ -49,11 +51,16 @@ function periodOf(pcm: Float32Array, start: number, d: Float64Array): number {
 
 /** The fundamental of each voiced 40 ms frame of 8 kHz mono, by YIN's cumulative mean normalized difference. */
 export function pitchTrack(pcm: Float32Array): PitchPoint[] {
+  return channelPitchTrack([pcm]);
+}
+
+function channelPitchTrack(channels: readonly Float32Array[]): PitchPoint[] {
+  const length = channels[0]?.length ?? 0;
   const out: PitchPoint[] = [];
   const d = new Float64Array(MAX_LAG + 1);
-  for (let start = 0; start + FRAME + MAX_LAG <= pcm.length; start += HOP) {
-    if (!voiced(pcm, start)) continue;
-    const lag = periodOf(pcm, start, d);
+  for (let start = 0; start + FRAME + MAX_LAG <= length; start += HOP) {
+    if (!voiced(channels, start)) continue;
+    const lag = periodOf(channels, start, d);
     if (lag > 0) out.push({ t: (start + FRAME / 2) / PITCH_RATE, hz: PITCH_RATE / lag });
   }
   return out;
@@ -82,7 +89,7 @@ export function atPitchRate(channels: readonly Float32Array[], sampleRate: numbe
 
 /** The share of 40 ms frames with a fundamental in the voice range; hits, whooshes and noise have none. */
 export function voicedShare(channels: readonly Float32Array[], sampleRate: number): number {
-  const pcm = atPitchRate(channels, sampleRate);
-  const frames = Math.floor(pcm.length / HOP);
-  return frames ? pitchTrack(pcm).length / frames : 0;
+  const pitched = channels.map((channel) => atPitchRate([channel], sampleRate));
+  const frames = Math.floor((pitched[0]?.length ?? 0) / HOP);
+  return frames ? channelPitchTrack(pitched).length / frames : 0;
 }
