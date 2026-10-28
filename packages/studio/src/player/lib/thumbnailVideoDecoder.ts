@@ -185,7 +185,7 @@ async function decodeFrames(
     const blob = await canvasToBlob(wrapped.canvas);
     throwIfAborted(signal);
     const frame = shareFrame(target.key, target.decodedAt, URL.createObjectURL(blob), blob.size);
-    progress.frames += 1;
+    progress.framesFromAnyJob += 1;
     resources.urls[target.slot] = frame.url;
     resources.held.push({ key: target.key, frame });
   }
@@ -270,9 +270,9 @@ async function decodeMissingFrames(
     if (timedOut(signal)) reportMediaFetchFailure(timeoutWithoutProgress());
     throw error;
   }
-  const framesBefore = source.progress.frames;
+  const framesBefore = source.progress.framesFromAnyJob;
   const releaseOnAbort = () => {
-    const madeProgress = source.waitedForOpen || source.progress.frames > framesBefore;
+    const madeProgress = source.waitedForOpen || source.progress.framesFromAnyJob > framesBefore;
     const failed = timedOut(signal) && !madeProgress;
     if (failed) reportMediaFetchFailure(timeoutWithoutProgress());
     source.release(failed);

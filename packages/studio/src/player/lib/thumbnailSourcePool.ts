@@ -19,8 +19,7 @@ export interface ThumbnailSource extends OpenedSource {
   release(failed: boolean): void;
   /** The job waited for the reader to open: the open finishing was progress the job saw. */
   waitedForOpen: boolean;
-  /** Frames any job has decoded from this reader: a sibling's are progress too. */
-  progress: { frames: number };
+  progress: { framesFromAnyJob: number };
 }
 
 interface PooledSource {
@@ -30,7 +29,7 @@ interface PooledSource {
   ready: boolean;
   opened: Promise<OpenedSource>;
   users: number;
-  progress: { frames: number };
+  progress: { framesFromAnyJob: number };
   idleTimer: ReturnType<typeof setTimeout> | null;
   disposed: boolean;
 }
@@ -103,7 +102,7 @@ function pooledSource(source: string, version: string | undefined): PooledSource
     ready: false,
     opened: open(source, () => entry),
     users: 0,
-    progress: { frames: 0 },
+    progress: { framesFromAnyJob: 0 },
     idleTimer: null,
     disposed: false,
   };
