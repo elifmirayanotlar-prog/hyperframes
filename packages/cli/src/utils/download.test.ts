@@ -212,6 +212,94 @@ describe("downloadFile", () => {
   });
 });
 
+describe("stalled downloads", () => {
+  // A host whose every connection stops after `cut` bytes until the idle timeout fires.
+  function stallingHost(
+    content: Buffer,
+    cut: number,
+    honourRange: boolean,
+    ranges: (string | undefined)[],
+  ) {
+    return ((_url: string, optionsOrCallback: unknown, maybeCallback?: unknown) => {
+      const callback = (
+        typeof optionsOrCallback === "function" ? optionsOrCallback : maybeCallback
+      ) as (response: IncomingMessage) => void;
+      const range = (optionsOrCallback as { headers?: { Range?: string } }).headers?.Range;
+      ranges.push(range);
+      const start = honourRange && range ? Number(/bytes=(\d+)-/.exec(range)?.[1]) : 0;
+      const response = new PassThrough() as PassThrough & {
+        statusCode: number;
+        headers: Record<string, string>;
+      };
+      response.statusCode = start > 0 ? 206 : 200;
+      response.headers = {
+        "content-length": String(content.length - start),
+        ...(start > 0
+          ? { "content-range": `bytes ${start}-${content.length - 1}/${content.length}` }
+          : {}),
+      };
+      class FakeRequest extends EventEmitter {
+        private timeout: ReturnType<typeof setTimeout> | undefined;
+        setTimeout(ms: number, onTimeout: () => void): this {
+          this.timeout = setTimeout(onTimeout, ms);
+          return this;
+        }
+        destroy(error: Error): void {
+          clearTimeout(this.timeout);
+          response.destroy(error);
+          this.emit("error", error);
+        }
+      }
+      const request = new FakeRequest();
+      callback(response as unknown as IncomingMessage);
+      const end = Math.min(start + cut, content.length);
+      queueMicrotask(() => {
+        response.write(content.subarray(start, end));
+        if (end === content.length) {
+          clearTimeout((request as unknown as { timeout: ReturnType<typeof setTimeout> }).timeout);
+          response.end();
+        }
+      });
+      return request as unknown as ClientRequest;
+    }) as typeof httpsGet;
+  }
+
+  it("resumes a download that stalls at the same byte count on every connection", async () => {
+    const content = Buffer.from(Array.from({ length: 1000 }, (_, i) => i % 251));
+    const ranges: (string | undefined)[] = [];
+    mockGet.mockImplementation(stallingHost(content, 300, true, ranges));
+    const dir = mkdtempSync(join(tmpdir(), "hyperframes-download-"));
+    tempDirs.push(dir);
+    const dest = join(dir, "model.onnx");
+    const progress: number[] = [];
+
+    await downloadFile("https://example.test/model.onnx", dest, {
+      timeoutMs: 10,
+      onProgress: (received) => progress.push(received),
+    });
+
+    expect(readFileSync(dest).equals(content)).toBe(true);
+    expect(ranges).toEqual([undefined, "bytes=300-", "bytes=600-", "bytes=900-"]);
+    expect(progress.at(-1)).toBe(1000);
+    expect(readdirSync(dir)).toEqual(["model.onnx"]);
+  });
+
+  it("gives up when a retry brings no new bytes", async () => {
+    const content = Buffer.alloc(1000, 7);
+    const ranges: (string | undefined)[] = [];
+    mockGet.mockImplementation(stallingHost(content, 300, false, ranges));
+    const dir = mkdtempSync(join(tmpdir(), "hyperframes-download-"));
+    tempDirs.push(dir);
+    const dest = join(dir, "model.onnx");
+
+    await expect(
+      downloadFile("https://example.test/model.onnx", dest, { timeoutMs: 10 }),
+    ).rejects.toThrow("Download timed out after 10ms");
+    expect(ranges).toEqual([undefined, "bytes=300-"]);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+});
+
 describe("redirect handling", () => {
   it("closes each redirect response before opening the next request", async () => {
     const responses: IncomingMessage[] = [];

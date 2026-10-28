@@ -43,12 +43,10 @@ function removePartialFile(path: string): void {
   }
 }
 
-function measureDownload(options: DownloadOptions, contentLength: string | undefined) {
-  const length = Number(contentLength);
-  const totalBytes = Number.isSafeInteger(length) && length >= 0 ? length : null;
-  let receivedBytes = 0;
+function measureDownload(options: DownloadOptions, startBytes: number, totalBytes: number | null) {
+  let receivedBytes = startBytes;
   let reportedAt = Date.now();
-  options.onProgress?.(0, totalBytes);
+  options.onProgress?.(receivedBytes, totalBytes);
   const stream = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
       receivedBytes += chunk.byteLength;
@@ -64,15 +62,127 @@ function measureDownload(options: DownloadOptions, contentLength: string | undef
       callback(null, chunk);
     },
   });
-  return { stream, complete: () => options.onProgress?.(receivedBytes, totalBytes) };
+  return {
+    stream,
+    received: () => receivedBytes,
+    complete: () => options.onProgress?.(receivedBytes, totalBytes),
+  };
 }
 
 function getUrl(
   url: string,
   signal: AbortSignal | undefined,
+  offset: number,
   onResponse: (res: IncomingMessage) => void,
 ): ClientRequest {
-  return signal ? httpsGet(url, { signal }, onResponse) : httpsGet(url, onResponse);
+  const headers = offset > 0 ? { Range: `bytes=${offset}-` } : undefined;
+  if (!signal && !headers) return httpsGet(url, onResponse);
+  return httpsGet(
+    url,
+    { ...(signal ? { signal } : {}), ...(headers ? { headers } : {}) },
+    onResponse,
+  );
+}
+
+function byteCount(value: string | undefined): number | null {
+  const n = Number(value);
+  return value !== undefined && Number.isSafeInteger(n) && n >= 0 ? n : null;
+}
+
+/** Where a 206 body starts and the whole file's size, from `Content-Range: bytes start-end/total`. */
+function contentRange(header: string | undefined): { start: number; total: number | null } | null {
+  const match = /^bytes (\d+)-\d+\/(\d+|\*)$/.exec(header ?? "");
+  return match
+    ? { start: Number(match[1]), total: match[2] === "*" ? null : Number(match[2]) }
+    : null;
+}
+
+/** One request chain; `state.received` holds the bytes in `tmp` even when it rejects. */
+function downloadAttempt(
+  url: string,
+  tmp: string,
+  state: { received: number },
+  options: DownloadOptions,
+): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS;
+  const offset = state.received;
+  return new Promise((resolve, reject) => {
+    const follow = (u: string, hops = 0) => {
+      let activeResponse: IncomingMessage | undefined;
+      let responseDiscarded = false;
+      let responsePipelineStarted = false;
+      let requestError: Error | undefined;
+      let request: ClientRequest;
+      try {
+        request = getUrl(u, options.signal, offset, (res) => {
+          activeResponse = res;
+          if (res.statusCode && REDIRECT_CODES.has(res.statusCode)) {
+            const location = res.headers.location;
+            if (location) {
+              responseDiscarded = true;
+              res.destroy();
+              if (hops >= MAX_REDIRECTS) {
+                reject(
+                  new Error(
+                    `Download failed: more than ${MAX_REDIRECTS} redirects from ${url.split("?")[0]}`,
+                  ),
+                );
+                return;
+              }
+              try {
+                follow(redirectTarget(location, u), hops + 1);
+              } catch (error) {
+                reject(error);
+              }
+              return;
+            }
+          }
+          const range = res.statusCode === 206 ? contentRange(res.headers["content-range"]) : null;
+          const resumed = offset > 0 && range?.start === offset;
+          if (res.statusCode !== 200 && !resumed) {
+            responseDiscarded = true;
+            res.destroy();
+            reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+            return;
+          }
+          const start = resumed ? offset : 0;
+          const length = byteCount(res.headers["content-length"]);
+          const total = resumed ? (range?.total ?? null) : length;
+          state.received = start;
+          const meter = measureDownload(options, start, total);
+          const file = createWriteStream(tmp, { flags: resumed ? "a" : "w" });
+          responsePipelineStarted = true;
+          const transfer = pipeline(res, meter.stream, file);
+          transfer
+            .then(() => {
+              state.received = meter.received();
+              meter.complete();
+              resolve();
+            })
+            .catch((err) => {
+              state.received = meter.received();
+              reject(requestError ?? err);
+            });
+        });
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      request.setTimeout(timeoutMs, () => {
+        request.destroy(new Error(`Download timed out after ${timeoutMs}ms`));
+      });
+      request.on("error", (err) => {
+        if (responseDiscarded) return;
+        if (responsePipelineStarted) {
+          requestError = err;
+          activeResponse?.destroy(err);
+          return;
+        }
+        reject(err);
+      });
+    };
+    follow(url);
+  });
 }
 
 /**
@@ -87,88 +197,30 @@ function getUrl(
  * The timeout is per request, so it re-arms on each hop of a redirect chain
  * rather than budgeting the whole chain. A stalled socket is what it exists to
  * catch, and without it the CLI waits forever.
+ *
+ * Some networks stop delivering a large file at the same byte count on every
+ * connection. When an attempt fails after making progress, the next one asks for
+ * the rest with a Range header; it gives up only when an attempt brings nothing.
  */
-export function downloadFile(
+export async function downloadFile(
   url: string,
   dest: string,
   options: DownloadOptions = {},
 ): Promise<void> {
   const tmp = `${dest}.${process.pid}.${randomUUID()}.tmp`;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS;
-  return new Promise((resolve, reject) => {
-    const follow = (u: string, hops = 0) => {
-      let activeResponse: IncomingMessage | undefined;
-      let responseDiscarded = false;
-      let responsePipelineStarted = false;
-      let requestError: Error | undefined;
-      let request: ClientRequest;
-      try {
-        request = getUrl(u, options.signal, (res) => {
-          activeResponse = res;
-          if (res.statusCode && REDIRECT_CODES.has(res.statusCode)) {
-            const location = res.headers.location;
-            if (location) {
-              responseDiscarded = true;
-              res.destroy();
-              if (hops >= MAX_REDIRECTS) {
-                removePartialFile(tmp);
-                reject(
-                  new Error(
-                    `Download failed: more than ${MAX_REDIRECTS} redirects from ${url.split("?")[0]}`,
-                  ),
-                );
-                return;
-              }
-              try {
-                follow(redirectTarget(location, u), hops + 1);
-              } catch (error) {
-                removePartialFile(tmp);
-                reject(error);
-              }
-              return;
-            }
-          }
-          if (res.statusCode !== 200) {
-            responseDiscarded = true;
-            res.destroy();
-            removePartialFile(tmp);
-            reject(new Error(`Download failed: HTTP ${res.statusCode}`));
-            return;
-          }
-          const meter = measureDownload(options, res.headers["content-length"]);
-          const file = createWriteStream(tmp);
-          responsePipelineStarted = true;
-          const transfer = pipeline(res, meter.stream, file);
-          transfer
-            .then(() => {
-              renameSync(tmp, dest);
-              meter.complete();
-              resolve();
-            })
-            .catch((err) => {
-              removePartialFile(tmp);
-              reject(requestError ?? err);
-            });
-        });
-      } catch (error) {
+  const state = { received: 0 };
+  for (;;) {
+    const before = state.received;
+    try {
+      await downloadAttempt(url, tmp, state, options);
+      renameSync(tmp, dest);
+      return;
+    } catch (error) {
+      const overLimit = error instanceof Error && error.message.startsWith("Download exceeded");
+      if (options.signal?.aborted || overLimit || state.received <= before) {
         removePartialFile(tmp);
-        reject(error);
-        return;
+        throw error;
       }
-      request.setTimeout(timeoutMs, () => {
-        request.destroy(new Error(`Download timed out after ${timeoutMs}ms`));
-      });
-      request.on("error", (err) => {
-        if (responseDiscarded) return;
-        if (responsePipelineStarted) {
-          requestError = err;
-          activeResponse?.destroy(err);
-          return;
-        }
-        removePartialFile(tmp);
-        reject(err);
-      });
-    };
-    follow(url);
-  });
+    }
+  }
 }
