@@ -18,7 +18,6 @@ export interface PlaybackHealth {
   choppy: boolean;
   fps: number;
   worstFrameMs: number;
-  /** Absent from a runtime older than the studio. */
   skippedShare?: number;
   waitingShare?: number;
   gapP50Ms?: number;
