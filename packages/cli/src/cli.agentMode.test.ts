@@ -262,6 +262,22 @@ describe("agent-mode contract", () => {
     expect(JSON.parse(run.stdout).error.message).toBe("Invalid JSON in --variables");
   });
 
+  it("a --strict lint abort under --json names the lint errors, on stdout and stderr", async () => {
+    const project = join(home, "render-strict");
+    mkdirSync(project, { recursive: true });
+    writeFileSync(
+      join(project, "index.html"),
+      '<!doctype html><html><body><div data-composition-id="main"></div></body></html>',
+    );
+    const run = await runAsAgent(["render", project, "--strict", "--json"]);
+    expectQuiet(run);
+    expect(run.code, run.stderr).toBe(1);
+    expectJsonFailure(run, "runtime_error");
+    const { message } = JSON.parse(run.stdout).error as { message: string };
+    expect(message).toMatch(/Aborting render due to lint issues in --strict mode: [1-9]\d* error/);
+    expect(run.stderr).toContain(message);
+  });
+
   it("an unknown command under --json is an envelope with the suggestion", async () => {
     const run = await runAsAgent(["rendr", "--json"]);
     expect(run.code).toBe(2);
