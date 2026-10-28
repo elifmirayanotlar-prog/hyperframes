@@ -1,4 +1,4 @@
-import { lintHyperframeHtml } from "@hyperframes/lint";
+import { collectExternalStyles, lintHyperframeHtml } from "@hyperframes/lint";
 
 export type HyperframeStaticFailureReason =
   | "missing_composition_id"
@@ -13,10 +13,18 @@ export type HyperframeStaticGuardResult = {
   failureReason: HyperframeStaticFailureReason | null;
 };
 
+/** `project` lets the lint read the stylesheets the html links, as `hyperframes lint` does; without it only inline
+ * `<style>` is seen. `compSrcPath` is the html's project-relative path, unless it is the root index.html. */
 export async function validateHyperframeHtmlContract(
   html: string,
+  project?: { dir: string; compSrcPath?: string },
 ): Promise<HyperframeStaticGuardResult> {
-  const result = await lintHyperframeHtml(html);
+  const result = await lintHyperframeHtml(
+    html,
+    project && {
+      externalStyles: collectExternalStyles(project.dir, html, project.compSrcPath),
+    },
+  );
   const missingKeys = result.findings
     .filter((finding) => finding.severity === "error")
     .map((finding) => finding.message);
