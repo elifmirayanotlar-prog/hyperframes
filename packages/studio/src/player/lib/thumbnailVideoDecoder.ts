@@ -4,7 +4,8 @@ import {
   type ThumbnailLoadedResult,
   type ThumbnailValue,
 } from "./thumbnailScheduler";
-import { mediaUrlSourceOptions, reportMediaFetchFailure } from "./mediaFetch";
+import { reportMediaFetchFailure } from "./mediaFetch";
+import { acquireThumbnailSource, type SourceInfo } from "./thumbnailSourcePool";
 import {
   releaseSharedFrames,
   shareFrame,
@@ -76,10 +77,8 @@ interface ThumbnailCanvasSink {
   ): AsyncIterable<{ canvas: HTMLCanvasElement | OffscreenCanvas } | null>;
 }
 
-interface SourceInfo {
-  aspect: number;
-  metadataDuration: number | null;
-}
+const isAbortError = (error: unknown) =>
+  (error as { name?: unknown } | null)?.name === "AbortError";
 
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw new DOMException("Aborted", "AbortError");
@@ -244,28 +243,15 @@ async function decodeMissingFrames(
   keyOf: (time: number) => string,
   resources: DecodedResources,
 ): Promise<ThumbnailLoadedResult> {
-  const mediabunny = await import("mediabunny");
-  throwIfAborted(signal);
-
-  const input = new mediabunny.Input({
-    source: new mediabunny.UrlSource(request.source, mediaUrlSourceOptions("thumbnail")),
-    formats: mediabunny.ALL_FORMATS,
-  });
+  const source = await acquireThumbnailSource(
+    request.source,
+    request.contentVersion,
+    signal,
+    budgets.thumbnailSourceIdleMs,
+  );
   try {
-    const track = await input.getPrimaryVideoTrack();
     throwIfAborted(signal);
-    if (!track) throw new Error("Video source has no decodable video track");
-    const [displayWidth, displayHeight] = await Promise.all([
-      track.getDisplayWidth(),
-      track.getDisplayHeight(),
-    ]);
-    throwIfAborted(signal);
-    if (!(displayWidth > 0 && displayHeight > 0)) {
-      throw new Error("Video source has invalid dimensions");
-    }
-    const metadataDuration = await track.getDurationFromMetadata({ skipLiveWait: true });
-    throwIfAborted(signal);
-    const info: SourceInfo = { aspect: displayWidth / displayHeight, metadataDuration };
+    const { mediabunny, track, info } = source;
     sourceInfos.set(request.source, { version: request.contentVersion, info });
     const strip = stripTimes(request, info, budgets);
     const { timestamps, window } = strip;
@@ -294,8 +280,11 @@ async function decodeMissingFrames(
       });
       await decodeFrames(sink, decodeTimesAtNearbyKeyframes(), slots, signal, resources);
     }
-    return loadedResult(resources, info.aspect, budgets, timestamps.length);
-  } finally {
-    input.dispose();
+    const result = loadedResult(resources, info.aspect, budgets, timestamps.length);
+    source.release(false);
+    return result;
+  } catch (error) {
+    source.release(!isAbortError(error));
+    throw error;
   }
 }

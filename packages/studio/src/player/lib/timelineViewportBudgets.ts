@@ -17,6 +17,7 @@ export interface TimelineViewportBudgets {
   thumbnailLoadTimeoutMs: number;
   thumbnailCacheBytes: number;
   sharedFrameCacheBytes: number;
+  thumbnailSourceIdleMs: number;
   thumbnailCacheEntries: number;
   thumbnailCacheEntriesPerProject: number;
   metadataRegistryEntries: number;
@@ -79,6 +80,8 @@ export const TIMELINE_VIEWPORT_BUDGETS: Readonly<TimelineViewportBudgets> = Obje
   thumbnailCacheBytes: 64 * MEBIBYTE,
   // JPEG bytes of released video frames kept for scroll-back: at ~6 KB a frame, ~11 frames for each of 473 clips.
   sharedFrameCacheBytes: 32 * MEBIBYTE,
+  // A video source stays open this long after its last clip's decode: a pause between scrolls reuses its index.
+  thumbnailSourceIdleMs: 10_000,
   thumbnailCacheEntries: 256,
   thumbnailCacheEntriesPerProject: 96,
   metadataRegistryEntries: 512,

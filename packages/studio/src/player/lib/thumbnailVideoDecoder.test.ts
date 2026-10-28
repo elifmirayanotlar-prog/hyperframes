@@ -9,6 +9,7 @@ import { releaseSharedFrames } from "./thumbnailFrameCache";
 const dispose = vi.fn();
 const sourceRetryRules: string[] = [];
 const canvasesAtTimestamps = vi.fn();
+const canvasSinks: unknown[] = [];
 const getKeyPacket = vi.fn(async (_time: number) => null as { timestamp: number } | null);
 const input = {
   getPrimaryVideoTrack: vi.fn(),
@@ -30,6 +31,9 @@ vi.mock("mediabunny", () => ({
     dispose = input.dispose;
   },
   CanvasSink: class {
+    constructor() {
+      canvasSinks.push(this);
+    }
     canvasesAtTimestamps = canvasesAtTimestamps;
   },
   EncodedPacketSink: class {
@@ -65,6 +69,7 @@ beforeEach(() => {
   // Released frames outlive their test; evict them so each test counts only its own revokes.
   releaseSharedFrames([], 0);
   vi.clearAllMocks();
+  canvasSinks.length = 0;
   getKeyPacket.mockImplementation(async () => null);
   vi.spyOn(URL, "createObjectURL")
     .mockReturnValueOnce("blob:one")
@@ -512,5 +517,102 @@ describe("decodeVideoThumbnail", () => {
     expect(getDurationFromMetadata).not.toHaveBeenCalled();
     expect(canvasesAtTimestamps).not.toHaveBeenCalled();
     expect(dispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("decodeVideoThumbnail's shared source", () => {
+  const signal = new AbortController().signal;
+  const clip = (sourceStart: number, extra: object = {}) => ({
+    source,
+    sourceStart,
+    sourceRangeDuration: 4,
+    frameCount: 2,
+    ...extra,
+  });
+
+  it("opens a source once for every clip cut from it", async () => {
+    recordDecodes([]);
+    await decodeVideoThumbnail(clip(0), signal);
+    await decodeVideoThumbnail(clip(6), signal);
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a source once for clips decoding at the same time, each with its own canvas sink", async () => {
+    recordDecodes([]);
+    await Promise.all([
+      decodeVideoThumbnail(clip(0), signal),
+      decodeVideoThumbnail(clip(6), signal),
+    ]);
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+    expect(canvasSinks).toHaveLength(2);
+  });
+
+  it("closes a source once it has sat idle for its budget", async () => {
+    vi.useFakeTimers();
+    try {
+      recordDecodes([]);
+      const budgets = resolveTimelineViewportBudgets({ thumbnailSourceIdleMs: 1_000 });
+      await decodeVideoThumbnail(clip(0), signal, budgets);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(dispose).not.toHaveBeenCalled();
+      await decodeVideoThumbnail(clip(6), signal, budgets);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(dispose).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(dispose).toHaveBeenCalledTimes(1);
+      expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("opens a new reader when the source's content version changes, and closes the old one at once", async () => {
+    recordDecodes([]);
+    const budgets = resolveTimelineViewportBudgets({ thumbnailSourceIdleMs: 60_000 });
+    await decodeVideoThumbnail(clip(0, { contentVersion: "A:1" }), signal, budgets);
+    await decodeVideoThumbnail(clip(0, { contentVersion: "A:2" }), signal, budgets);
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps no source whose open failed, so the next clip opens it again", async () => {
+    recordDecodes([]);
+    input.getPrimaryVideoTrack.mockRejectedValueOnce(new Error("unreadable"));
+    await expect(decodeVideoThumbnail(clip(0), signal)).rejects.toThrow("unreadable");
+    expect(dispose).toHaveBeenCalledTimes(1);
+    await expect(decodeVideoThumbnail(clip(6), signal)).resolves.toBeDefined();
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
+  });
+
+  it("reopens a source whose open failed after every clip waiting on it had cancelled", async () => {
+    recordDecodes([]);
+    let failOpen!: (error: Error) => void;
+    input.getPrimaryVideoTrack.mockImplementationOnce(
+      () => new Promise((_, reject) => (failOpen = reject)),
+    );
+    const budgets = resolveTimelineViewportBudgets({ thumbnailSourceIdleMs: 60_000 });
+    const controller = new AbortController();
+    const cancelled = decodeVideoThumbnail(clip(0), controller.signal, budgets);
+    await vi.waitFor(() => expect(input.getPrimaryVideoTrack).toHaveBeenCalledOnce());
+    controller.abort();
+    await expect(cancelled).rejects.toMatchObject({ name: "AbortError" });
+    failOpen(new Error("unreadable"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect(decodeVideoThumbnail(clip(6), signal, budgets)).resolves.toBeDefined();
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a reader whose reads gave up, so the next clip retries on a fresh one", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    sourceRetryRules.length = 0;
+    canvasesAtTimestamps.mockImplementationOnce(() => {
+      throw new MediaFetchError("thumbnail", null, "TypeError");
+    });
+    await expect(decodeVideoThumbnail(clip(0), signal)).rejects.toBeInstanceOf(MediaFetchError);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    recordDecodes([]);
+    await decodeVideoThumbnail(clip(6), signal);
+    // A UrlSource counts its own retries (mediaUrlSourceOptions), so a fresh one retries afresh.
+    expect(sourceRetryRules).toEqual(["function", "function"]);
   });
 });
