@@ -268,14 +268,19 @@ const CUTS: Partial<Record<AudioCapability, (value: unknown, window: RhythmWindo
   },
 };
 
+const beatsIn = (values: Analysis["values"], from: number, to: number) =>
+  values.beats ? beatsBetween(values.beats as MarkedBeats, from, to) : null;
+
+const pulseIn = (beats: MarkedBeats | null) => !!beats && heardTimes(beats).length >= PULSE_BEATS;
+
 function rhythmBetween(
   values: Analysis["values"],
   asked: readonly AudioCapability[],
   from: number,
   to: number,
 ): Analysis["values"] {
-  const beats = values.beats ? beatsBetween(values.beats as MarkedBeats, from, to) : null;
-  const window = { from, to, beats, pulse: !!beats && heardTimes(beats).length >= PULSE_BEATS };
+  const beats = beatsIn(values, from, to);
+  const window = { from, to, beats, pulse: pulseIn(beats) };
   return Object.fromEntries(
     asked.map((capability) => {
       const value = values[capability];
@@ -306,7 +311,19 @@ async function wholeClipRhythm(
     });
     const from = request.fileOffset ?? 0;
     const to = from + target.window!.seconds;
-    return { ...whole, values: rhythmBetween(whole.values, asked, from, to) };
+    const cut = rhythmBetween(whole.values, asked, from, to);
+    const beatAnswers = asked.filter((capability) => capability !== "sections");
+    if (!beatAnswers.length || pulseIn(beatsIn(whole.values, from, to)))
+      return { ...whole, values: cut };
+    // No pulse on the clip's grid here can be a section far under the clip's loudest: the window reads it alone.
+    const own = await analyzeSignal(signal, { ...request, capabilities: beatAnswers });
+    return {
+      ...own,
+      values: { ...cut, ...own.values },
+      provenance: { ...whole.provenance, ...own.provenance },
+      ladder: { ...whole.ladder, ...own.ladder },
+      warnings: [...new Set([...whole.warnings, ...own.warnings])],
+    };
   } catch (error) {
     const rhythm = await analyzeSignal(signal, { ...request, capabilities: asked });
     rhythm.warnings.push(
