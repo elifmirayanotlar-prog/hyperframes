@@ -566,6 +566,9 @@ describe("decodeVideoThumbnail's shared source", () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(dispose).toHaveBeenCalledTimes(1);
       expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+      // A closed reader has left the pool: the next clip opens a live one.
+      await expect(decodeVideoThumbnail(clip(12), signal, budgets)).resolves.toBeDefined();
+      expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
@@ -578,6 +581,48 @@ describe("decodeVideoThumbnail's shared source", () => {
     await decodeVideoThumbnail(clip(0, { contentVersion: "A:2" }), signal, budgets);
     expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
     expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the old version's reader only once the job still decoding on it ends", async () => {
+    recordDecodes([]);
+    let finish!: () => void;
+    const held = new Promise<void>((resolve) => (finish = resolve));
+    canvasesAtTimestamps.mockImplementationOnce(async function* (
+      timestamps: AsyncIterable<number>,
+    ) {
+      for await (const _time of timestamps) {
+        await held;
+        yield { canvas: document.createElement("canvas") };
+      }
+    });
+    const budgets = resolveTimelineViewportBudgets({ thumbnailSourceIdleMs: 60_000 });
+    const old = decodeVideoThumbnail(clip(0, { contentVersion: "A:1" }), signal, budgets);
+    await vi.waitFor(() => expect(canvasesAtTimestamps).toHaveBeenCalledOnce());
+    await decodeVideoThumbnail(clip(6, { contentVersion: "A:2" }), signal, budgets);
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
+    expect(dispose).not.toHaveBeenCalled();
+
+    finish();
+    await old;
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops opening a source every job let go of before its track was read", async () => {
+    let giveTrack!: (track: unknown) => void;
+    input.getPrimaryVideoTrack.mockImplementationOnce(
+      () => new Promise((resolve) => (giveTrack = resolve)),
+    );
+    const controller = new AbortController();
+    const decoding = decodeVideoThumbnail(clip(0), controller.signal, NOTHING_KEPT);
+    await vi.waitFor(() => expect(input.getPrimaryVideoTrack).toHaveBeenCalledOnce());
+    controller.abort();
+    await expect(decoding).rejects.toMatchObject({ name: "AbortError" });
+    expect(dispose).toHaveBeenCalledTimes(1);
+
+    const getDisplayWidth = vi.fn(async () => 1080);
+    giveTrack({ getDisplayWidth, getDisplayHeight: vi.fn(async () => 1920) });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getDisplayWidth).not.toHaveBeenCalled();
   });
 
   it("keeps no source whose open failed, so the next clip opens it again", async () => {
@@ -661,6 +706,19 @@ describe("decodeVideoThumbnail's shared source", () => {
     await decodeVideoThumbnail(clip(6), signal);
     expect(dispose).not.toHaveBeenCalled();
     expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the reader when a clip's own decode yields no frames", async () => {
+    canvasesAtTimestamps.mockImplementationOnce(async function* (
+      timestamps: AsyncIterable<number>,
+    ) {
+      for await (const _time of timestamps) yield null;
+    });
+    await expect(decodeVideoThumbnail(clip(0), signal)).rejects.toThrow("no thumbnail frames");
+    recordDecodes([]);
+    await decodeVideoThumbnail(clip(6), signal);
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+    expect(dispose).not.toHaveBeenCalled();
   });
 
   it("keeps the reader of a clip scrolled away from, for the next clip", async () => {

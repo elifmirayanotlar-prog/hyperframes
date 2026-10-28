@@ -55,11 +55,15 @@ const sourceInfos = new Map<string, { version: string | undefined; info: SourceI
 const accepts = (window: FrameWindow, time: number, decodedAt: number) =>
   decodedAt >= window.sourceStart && time - decodedAt <= (time >= window.end ? 0 : window.lead);
 
+/** One clip's result failed, not the source it reads: its reader stays pooled for the next clip. */
+class ClipResultError extends Error {}
+
 async function canvasToBlob(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<Blob> {
   if (canvas instanceof HTMLCanvasElement) {
     return new Promise((resolve, reject) => {
       canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error("Video thumbnail encode failed"))),
+        (blob) =>
+          blob ? resolve(blob) : reject(new ClipResultError("Video thumbnail encode failed")),
         "image/jpeg",
         0.72,
       );
@@ -83,6 +87,9 @@ interface ThumbnailCanvasSink {
 
 const isAbortError = (error: unknown) =>
   (error as { name?: unknown } | null)?.name === "AbortError";
+// Fetch, demux and decode failures retire the reader; a cancel or one clip's own result does not.
+const isSourceFailure = (error: unknown) =>
+  !isAbortError(error) && !(error instanceof ClipResultError);
 const isTimeout = (reason: unknown) =>
   (reason as { name?: unknown } | null)?.name === "TimeoutError";
 
@@ -209,7 +216,7 @@ function loadedResult(
 ): ThumbnailLoadedResult {
   const decoded = resources.urls.filter((url): url is string => url !== undefined);
   const firstUrl = decoded[0];
-  if (!firstUrl) throw new Error("Video source returned no thumbnail frames");
+  if (!firstUrl) throw new ClipResultError("Video source returned no thumbnail frames");
   let nearest = firstUrl;
   const urls = Array.from(
     { length: frameCount },
@@ -309,7 +316,7 @@ async function decodeMissingFrames(
     source.release(false);
     return result;
   } catch (error) {
-    source.release(!isAbortError(error));
+    source.release(isSourceFailure(error));
     throw error;
   } finally {
     stopWatching();
