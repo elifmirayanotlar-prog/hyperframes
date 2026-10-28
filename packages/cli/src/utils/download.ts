@@ -284,7 +284,7 @@ function lockIsStale(owner: string): boolean {
   return pid === process.pid ? !heldLocks.has(owner) : !processAlive(pid);
 }
 
-/** Holds `dest`'s download, waiting while another live process downloads it; returns the owner and whether it waited. */
+/** Takes `dest`'s download lock, waiting while another live process holds it. */
 async function acquireLock(
   lock: string,
   signal: AbortSignal | undefined,
