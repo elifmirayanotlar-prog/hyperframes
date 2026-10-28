@@ -55,7 +55,7 @@ function countAsked(
   return asked;
 }
 
-/** The wanted frames whose decode is known. A failed probe leaves its frames to the single-frame path, which says why. */
+/** The wanted frames whose decode is known; a failed probe leaves its frames to the single-frame path. */
 async function probeFrames(
   probe: Probe,
   path: string,
