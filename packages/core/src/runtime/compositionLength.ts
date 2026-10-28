@@ -34,7 +34,6 @@ export function readCompositionSize(root: Element): {
   };
 }
 
-/** The latest end among the document's timed video and audio, at their absolute starts. */
 type MediaTiming = {
   mediaStart: (el: HTMLMediaElement) => number;
   mediaDuration: (el: HTMLMediaElement) => number | null;
@@ -128,7 +127,6 @@ export type CompositionLengthInputs = {
 
 export type CompositionLengthFrom = "declared" | "timeline" | "floor" | "fallback" | "derived";
 
-/** Which input set the length, as the runtime publishes it on `window.__hf.lengthSource`. */
 export type CompositionLengthSource =
   | { from: CompositionLengthFrom }
   | { from: "media"; tag: string; src: string; trimmed: boolean };
