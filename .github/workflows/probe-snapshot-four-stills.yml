@@ -22,8 +22,8 @@ jobs:
         include:
           - { name: main, defender: "off", ref: 85efaece7e11a3e420fb4d93b85230781e805942 }
           - { name: main, defender: "on", ref: 85efaece7e11a3e420fb4d93b85230781e805942 }
-          - { name: fix, defender: "off", ref: d1fc64c7d8a3ac4797f656b0b18b31f1fe1fb222 }
-          - { name: fix, defender: "on", ref: d1fc64c7d8a3ac4797f656b0b18b31f1fe1fb222 }
+          - { name: fix, defender: "off", ref: 7b5eb7940e4ed8e8cd4c5d8d9e6b0fe4e4f708fc }
+          - { name: fix, defender: "on", ref: 7b5eb7940e4ed8e8cd4c5d8d9e6b0fe4e4f708fc }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
