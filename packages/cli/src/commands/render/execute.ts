@@ -91,6 +91,9 @@ export async function executeRenderPlan(
     }
   }
 
+  const variables = plan.batchPath
+    ? undefined
+    : resolveVariablesArg(plan.variablesArg, plan.variablesFileArg);
   if (!plan.useDocker) await refuseLowDiskBeforeBrowserDownload(plan);
   const browserPath = plan.useDocker
     ? undefined
@@ -113,13 +116,12 @@ export async function executeRenderPlan(
     return;
   }
 
-  const variables = resolveVariablesArg(plan.variablesArg, plan.variablesFileArg);
   if (variables && Object.keys(variables).length > 0) {
     const issues = validateVariablesAgainstProject(plan.renderTarget, variables);
-    reportVariableIssues(issues, { strict: plan.strictVariables, quiet: plan.quiet });
+    reportVariableIssues(issues, { strict: plan.strictVariables, quiet: plan.effectiveQuiet });
   }
 
-  if (plan.proresProfile && !PRORES_PROFILES[plan.proresProfile].alpha && !plan.quiet) {
+  if (plan.proresProfile && !PRORES_PROFILES[plan.proresProfile].alpha && !plan.effectiveQuiet) {
     console.log(
       c.dim(`ProRes ${plan.proresProfile} has no alpha channel: transparent areas render black.`),
     );
@@ -165,7 +167,7 @@ export function renderOptionsFromPlan(
     bufferSize: plan.bufferSize,
     videoFrameFormat: plan.videoFrameFormat,
     pageMotionBlur: plan.pageMotionBlur,
-    quiet: plan.quiet,
+    quiet: plan.effectiveQuiet,
     browserPath,
     debug: plan.debug,
     resumeSegments: plan.resumeSegments,

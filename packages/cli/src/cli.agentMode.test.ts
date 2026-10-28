@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -248,6 +248,18 @@ describe("agent-mode contract", () => {
     expect(run.code).toBe(1);
     expectJsonFailure(run, "runtime_error");
     expect(run.stdout).toContain("No composition found");
+  });
+
+  it("a render that fails under --json prints only the envelope on stdout", async () => {
+    const project = join(home, "render-json");
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, "index.html"), "<!doctype html><html><body></body></html>");
+    const run = await runAsAgent(["render", project, "--variables", "{bad", "--json"]);
+    expectQuiet(run);
+    expect(run.code, run.stderr).toBe(1);
+    expect(run.stdout.trim().split("\n")).toHaveLength(1);
+    expectJsonFailure(run, "runtime_error");
+    expect(JSON.parse(run.stdout).error.message).toBe("Invalid JSON in --variables");
   });
 
   it("an unknown command under --json is an envelope with the suggestion", async () => {
