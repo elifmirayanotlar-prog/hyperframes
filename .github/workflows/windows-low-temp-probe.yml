@@ -16,7 +16,7 @@ jobs:
   probe:
     name: A render with TEMP on a nearly full drive
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/install-ffmpeg-windows
@@ -52,7 +52,7 @@ jobs:
           $project = "$env:RUNNER_TEMP\video-project"
           New-Item -ItemType Directory -Force -Path $project | Out-Null
           Set-Location $project
-          ffmpeg -y -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=24" -c:v libx264 -pix_fmt yuv420p -g 30 1.mp4
+          ffmpeg -y -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=180" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 30 1.mp4
           @'
           <!doctype html>
           <html lang="en">
@@ -65,8 +65,8 @@ jobs:
               </style>
             </head>
             <body>
-              <div id="root" data-composition-id="root" data-start="0" data-duration="24" data-width="1920" data-height="1080">
-                <video id="v" src="1.mp4" data-start="0" muted data-duration="24" data-track-index="0" data-media-start="0"></video>
+              <div id="root" data-composition-id="root" data-start="0" data-duration="180" data-width="1920" data-height="1080">
+                <video id="v" src="1.mp4" data-start="0" muted data-duration="180" data-track-index="0" data-media-start="0"></video>
               </div>
               <script>window.__timelines = window.__timelines || {};</script>
             </body>
@@ -80,16 +80,23 @@ jobs:
           node $cli browser ensure
           New-Item -ItemType Directory -Force -Path S:\tmp | Out-Null
           $variants = @(
-            @{ Name = 'workers 1, defaults'; Args = @('--workers', '1') },
             @{ Name = 'workers 1, --gpu'; Args = @('--workers', '1', '--gpu') },
-            @{ Name = 'workers 1, --gpu, fast capture off'; Args = @('--workers', '1', '--gpu', '--experimental-fast-capture=false') },
-            @{ Name = 'workers 2, defaults'; Args = @('--workers', '2') }
+            @{ Name = 'workers 1, --gpu, fast capture off'; Args = @('--workers', '1', '--gpu', '--experimental-fast-capture=false') }
           )
           foreach ($v in $variants) {
             Write-Host "=== $($v.Name)"
             Get-ChildItem S:\tmp -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
             $env:TEMP = 'S:\tmp'; $env:TMP = 'S:\tmp'
-            $out = node $cli render --fps 30 --quality draft @($v.Args) --output "renders\probe.mp4" 2>&1
-            Write-Host "exit=$LASTEXITCODE free=$([math]::Round((Get-PSDrive S).Free / 1MB)) MB"
-            $out | Select-Object -Last 25 | ForEach-Object { Write-Host "    | $_" }
+            $log = "$env:RUNNER_TEMP\render.log"
+            $p = Start-Process -FilePath node -ArgumentList (@($cli, 'render', '--fps', '30', '--quality', 'draft') + $v.Args + @('--output', 'renders\probe.mp4')) -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -WindowStyle Hidden
+            $peak = 0
+            $deadline = (Get-Date).AddMinutes(7)
+            while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
+              $used = [math]::Round(((Get-PSDrive S).Used) / 1MB)
+              if ($used -gt $peak) { $peak = $used }
+              Start-Sleep -Milliseconds 500
+            }
+            if (-not $p.HasExited) { Write-Host 'still running after 7 minutes; stopping it'; Stop-Process -Id $p.Id -Force }
+            Write-Host "exit=$($p.ExitCode) peak used on S: $peak MB, free now $([math]::Round((Get-PSDrive S).Free / 1MB)) MB"
+            Get-Content $log, "$log.err" | Where-Object { $_ -match 'ENOENT|ENOSPC|rror|rame|space' } | Select-Object -Last 20 | ForEach-Object { Write-Host "    | $_" }
           }
