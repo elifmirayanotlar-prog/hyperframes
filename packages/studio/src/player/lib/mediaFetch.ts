@@ -29,7 +29,6 @@ export class MediaFetchError extends Error {
 }
 
 const MAX_RETRIES = 2;
-const START_FAILURES_FORGOTTEN_AFTER_MS = 60_000;
 // Three silent waits plus the 0.5 s and 1 s retry delays (25.5 s) end inside thumbnailLoadTimeoutMs.
 const SILENT_BODY_STALL_MS = 8_000;
 // mediabunny cancels a `bytes=N-` read at its target, by when a local server has streamed megabytes past it.
@@ -113,6 +112,7 @@ function typedBody(
   body: ReadableStream<Uint8Array>,
   start: number,
   request: WatchedRequest,
+  endedCleanly: (start: number) => void,
 ): ReadableStream<Uint8Array> {
   const source = body.getReader();
   return new ReadableStream<Uint8Array>({
@@ -121,6 +121,7 @@ function typedBody(
         const { done, value } = await request.wait(source.read());
         if (!done) return controller.enqueue(value);
         request.done();
+        endedCleanly(start);
         controller.close();
       } catch (error) {
         request.done();
@@ -129,6 +130,7 @@ function typedBody(
     },
     cancel: (reason) => {
       request.done();
+      endedCleanly(start);
       return source.cancel(reason);
     },
   });
@@ -154,13 +156,18 @@ async function typedFetch(
   throw new MediaFetchError(reader, response.status, null, asked);
 }
 
-function typedResponse(response: Response, asked: number, request: WatchedRequest): Response {
+function typedResponse(
+  response: Response,
+  asked: number,
+  request: WatchedRequest,
+  endedCleanly: (start: number) => void,
+): Response {
   if (!response.body) {
     request.done();
     return response;
   }
   const { status, statusText, headers } = response;
-  const body = typedBody(response.body, status === 206 ? asked : 0, request);
+  const body = typedBody(response.body, status === 206 ? asked : 0, request, endedCleanly);
   return new Response(body, { status, statusText, headers });
 }
 
@@ -170,7 +177,7 @@ function typedResponse(response: Response, asked: number, request: WatchedReques
  */
 export function mediaUrlSourceOptions(reader: MediaReader) {
   // Per start byte: a resume asks for a new start, while asking for one again uses its budget up.
-  const failuresByStart = new Map<number | null, { count: number; at: number }>();
+  const failuresByStart = new Map<number | null, number>();
   const inFlightReads = new AbortController();
   let ranges: "unknown" | "readable" | "hidden" = reader === "thumbnail" ? "unknown" : "hidden";
   const fetchFn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -182,18 +189,16 @@ export function mediaUrlSourceOptions(reader: MediaReader) {
     );
     const response = await typedFetch(reader, input, sent ?? {}, asked, request);
     if (ranges !== "hidden") ranges = rangesReadable(sent, response) ? "readable" : "hidden";
-    return typedResponse(response, asked, request);
+    return typedResponse(response, asked, request, (start) => failuresByStart.delete(start));
   };
   const getRetryDelay = (_previousAttempts: number, error: unknown): number | null => {
     const start = error instanceof MediaFetchError ? error.start : null;
-    const last = failuresByStart.get(start);
-    const failed =
-      last && Date.now() - last.at < START_FAILURES_FORGOTTEN_AFTER_MS ? last.count : 0;
+    const failed = failuresByStart.get(start) ?? 0;
     const clientError =
       error instanceof MediaFetchError && error.status !== null && error.status < 500;
     if (error instanceof MediaFetchError) error.setRetries(failed);
     if (clientError || failed >= MAX_RETRIES) return null;
-    failuresByStart.set(start, { count: failed + 1, at: Date.now() });
+    failuresByStart.set(start, failed + 1);
     return 0.5 * (failed + 1);
   };
   const cancelReads = () =>
