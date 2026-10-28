@@ -1,10 +1,7 @@
 import { postRuntimeMessage } from "./bridge";
 import { isRenderMode } from "./mediaProxy";
-import { RUNTIME_MEDIA_LOAD_FAILED } from "./protocol";
+import { RUNTIME_MEDIA_LOAD_FAILED, type MediaLoadStage } from "./protocol";
 import type { RuntimeJson } from "./types";
-
-/** Where loading a clip's media failed: the transport's fetch or decode, or the element's own load. */
-export type MediaLoadStage = "fetch" | "decode" | "element";
 
 const reported = new WeakMap<HTMLMediaElement, Set<MediaLoadStage>>();
 
@@ -54,10 +51,12 @@ export function reportMediaLoadFailure(
 }
 
 /** Reports each `<audio>` that fails to load; returns the cleanup. `error` does not bubble, so this listens in capture.
+ * A `<source>` child gets the error instead of its `<audio>`.
  * Video is left out: mediaProxy answers a video's load error with a lighter copy, so it is not yet a failure. */
 export function watchAudioLoadErrors(doc: Document): () => void {
   const onError = (event: Event) => {
-    const el = event.target;
+    const target = event.target;
+    const el = target instanceof HTMLSourceElement ? target.parentElement : target;
     if (el instanceof HTMLAudioElement)
       reportMediaLoadFailure(el, "element", el.error?.code ?? null);
   };

@@ -87,4 +87,19 @@ describe("a preview media load that fails is reported, not swallowed", () => {
     el.remove();
     video.remove();
   });
+  it("an audio element fed by <source> children reports when a source fails to load", () => {
+    const stop = watchAudioLoadErrors(document);
+    const el = document.createElement("audio");
+    el.id = "sourced";
+    const source = document.createElement("source");
+    source.setAttribute("src", "assets/gone.ogg");
+    el.append(source);
+    document.body.append(el);
+    source.dispatchEvent(new Event("error"));
+    stop();
+    expect(failures()).toEqual([
+      expect.objectContaining({ elementId: "sourced", stage: "element" }),
+    ]);
+    el.remove();
+  });
 });
