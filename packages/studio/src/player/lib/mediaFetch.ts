@@ -29,18 +29,34 @@ export class MediaFetchError extends Error {
 
 const MAX_RETRIES = 2;
 // mediabunny asks for `bytes=N-` and cancels once it has its target, by when a local server has
-// streamed megabytes past it. Bounded, a short answer makes mediabunny ask again from where it stopped.
+// streamed megabytes past it. Bounded, a short answer makes mediabunny ask again from where it stopped,
+// but only if it read the file's size from a Content-Range: see rangesReadable.
 const THUMBNAIL_RANGE_BYTES = 512 * 1024;
 // A pooled thumbnail reader outlives its clip (thumbnailSourcePool): a quarter of mediabunny's 64 MiB default.
 const THUMBNAIL_READ_CACHE_BYTES = 16 * 1024 * 1024;
 
+const rangeStart = (init: RequestInit | undefined, closed: boolean) =>
+  (closed ? /^bytes=(\d+)-\d*$/ : /^bytes=(\d+)-$/).exec(
+    new Headers(init?.headers).get("Range") ?? "",
+  )?.[1];
+
 function boundedRange(init: RequestInit | undefined): RequestInit | undefined {
+  const start = rangeStart(init, false);
+  if (start === undefined) return init;
   const headers = new Headers(init?.headers);
-  const open = /^bytes=(\d+)-$/.exec(headers.get("Range") ?? "");
-  if (!open) return init;
-  const start = Number(open[1]);
-  headers.set("Range", `bytes=${start}-${start + THUMBNAIL_RANGE_BYTES - 1}`);
+  headers.set("Range", `bytes=${start}-${Number(start) + THUMBNAIL_RANGE_BYTES - 1}`);
   return { ...init, headers };
+}
+
+/**
+ * Whether this answer shows the range asked for. Without a readable Content-Range, which a
+ * cross-origin server hides unless it lists it in Access-Control-Expose-Headers, mediabunny takes
+ * the answer's Content-Length as running to the end of the file, so a bounded answer would end it.
+ */
+function rangesReadable(init: RequestInit | undefined, response: Response): boolean {
+  const asked = rangeStart(init, true);
+  const shown = /^bytes (\d+)-\d+\/\d+$/.exec(response.headers.get("Content-Range") ?? "")?.[1];
+  return response.status === 206 && asked !== undefined && shown === asked;
 }
 
 const isAbort = (error: unknown) => (error as { name?: unknown } | null)?.name === "AbortError";
@@ -81,15 +97,19 @@ function typedBody(
  */
 export function mediaUrlSourceOptions(reader: MediaReader) {
   let failures = 0;
+  // Thumbnail ranges are bounded only after this reader read a Content-Range, and never once one was hidden.
+  let ranges: "unknown" | "readable" | "hidden" = reader === "thumbnail" ? "unknown" : "hidden";
   const fetchFn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const sent = ranges === "readable" ? boundedRange(init) : init;
     let response: Response;
     try {
       // oxlint-disable-next-line no-restricted-globals -- a media read, on the media's sockets like mediabunny's own
-      response = await fetch(input, reader === "thumbnail" ? boundedRange(init) : init);
+      response = await fetch(input, sent);
     } catch (error) {
       throw typedFailure(reader, error);
     }
     if (!response.ok) throw new MediaFetchError(reader, response.status, null);
+    if (ranges !== "hidden") ranges = rangesReadable(sent, response) ? "readable" : "hidden";
     if (!response.body) return response;
     const { status, statusText, headers } = response;
     return new Response(typedBody(reader, response.body), { status, statusText, headers });

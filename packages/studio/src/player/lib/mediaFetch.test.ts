@@ -148,23 +148,71 @@ describe("mediaUrlSourceOptions", () => {
 });
 
 describe("thumbnail reads", () => {
-  it("bounds an open-ended thumbnail range to 512 KiB, and leaves a probe's and a closed one alone", async () => {
+  // A 206 answering each request, with its Content-Range readable or (cross-origin, unexposed) hidden.
+  function rangeServer(answers: ("readable" | "hidden" | "whole" | { start: number })[]) {
     const ranges: (string | null)[] = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        ranges.push(new Headers(init?.headers).get("Range"));
-        return new Response("", { status: 206 });
+        const range = new Headers(init?.headers).get("Range");
+        ranges.push(range);
+        const answer = answers[ranges.length - 1] ?? "readable";
+        const start = typeof answer === "object" ? answer.start : Number(/\d+/.exec(range ?? "0"));
+        const headers =
+          answer === "hidden" ? {} : { "Content-Range": `bytes ${start}-9999999/10000000` };
+        return new Response("", { status: answer === "whole" ? 200 : 206, headers });
       }),
     );
-    const thumbnail = mediaUrlSourceOptions("thumbnail").fetchFn;
-    await thumbnail(URL_WITH_PATH, { headers: { Range: "bytes=1000-" } });
-    await thumbnail(URL_WITH_PATH, { headers: new Headers({ Range: "bytes=0-99" }) });
-    await mediaUrlSourceOptions("probe").fetchFn(URL_WITH_PATH, {
-      headers: { Range: "bytes=1000-" },
-    });
+    return ranges;
+  }
+  const BOUND = 512 * 1024;
 
-    expect(ranges).toEqual([`bytes=1000-${1000 + 512 * 1024 - 1}`, "bytes=0-99", "bytes=1000-"]);
+  it("bounds an open-ended thumbnail range once this reader has read a Content-Range", async () => {
+    const ranges = rangeServer(["readable"]);
+    const { fetchFn } = mediaUrlSourceOptions("thumbnail");
+    await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=0-" } });
+    await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=1000-" } });
+    await fetchFn(URL_WITH_PATH, { headers: new Headers({ Range: "bytes=0-99" }) });
+
+    // The first stays open-ended: without a readable Content-Range mediabunny sizes the file from it.
+    expect(ranges).toEqual(["bytes=0-", `bytes=1000-${1000 + BOUND - 1}`, "bytes=0-99"]);
+  });
+
+  it("never bounds a reader once an answer hid its Content-Range", async () => {
+    const ranges = rangeServer(["hidden", "readable"]);
+    const { fetchFn } = mediaUrlSourceOptions("thumbnail");
+    for (const start of [0, 1000, 2000]) {
+      await fetchFn(URL_WITH_PATH, { headers: { Range: `bytes=${start}-` } });
+    }
+
+    expect(ranges).toEqual(["bytes=0-", "bytes=1000-", "bytes=2000-"]);
+  });
+
+  it("does not trust a Content-Range for a range it did not ask for", async () => {
+    const ranges = rangeServer([{ start: 4096 }]);
+    const { fetchFn } = mediaUrlSourceOptions("thumbnail");
+    await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=0-" } });
+    await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=1000-" } });
+
+    expect(ranges).toEqual(["bytes=0-", "bytes=1000-"]);
+  });
+
+  it("does not trust a whole-file answer, whatever its headers say", async () => {
+    const ranges = rangeServer(["whole"]);
+    const { fetchFn } = mediaUrlSourceOptions("thumbnail");
+    await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=0-" } });
+    await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=1000-" } });
+
+    expect(ranges).toEqual(["bytes=0-", "bytes=1000-"]);
+  });
+
+  it("never bounds a probe's range", async () => {
+    const ranges = rangeServer(["readable"]);
+    const { fetchFn } = mediaUrlSourceOptions("probe");
+    await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=0-" } });
+    await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=1000-" } });
+
+    expect(ranges).toEqual(["bytes=0-", "bytes=1000-"]);
   });
 
   it("keeps a thumbnail reader's cache at 16 MiB, and a probe's at mediabunny's default", () => {
