@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getFfmpegBinary } from "../utils/ffmpegBinaries.js";
 import { processCompositionAudio } from "./audioMixer.js";
-import { extractMediaMetadata } from "../utils/ffprobe.js";
+import { extractMediaMetadata, resolvePlayableVideoDuration } from "../utils/ffprobe.js";
 import {
   extractVideoFramesRange,
   getFrameAtTime,
@@ -244,3 +244,121 @@ describe.skipIf(!HAS_FFMPEG)(
     }, 30_000);
   },
 );
+
+/** Moves every fragment of a fragmented MP4 later, as cutting it from the middle of a longer stream does. */
+function delayFragments(path: string, ticks: number): void {
+  const data = readFileSync(path);
+  const walk = (start: number, end: number): void => {
+    for (let at = start; at + 8 <= end; at += data.readUInt32BE(at)) {
+      const type = data.toString("latin1", at + 4, at + 8);
+      if (type === "moof" || type === "traf") walk(at + 8, at + data.readUInt32BE(at));
+      if (type !== "tfdt") continue;
+      if (data[at + 8] === 1) {
+        data.writeBigUInt64BE(data.readBigUInt64BE(at + 12) + BigInt(ticks), at + 12);
+      } else {
+        data.writeUInt32BE(data.readUInt32BE(at + 12) + ticks, at + 12);
+      }
+    }
+  };
+  walk(0, data.length);
+  writeFileSync(path, data);
+}
+
+describe.skipIf(!HAS_FFMPEG)("MP4 and WebM sources whose first timestamp is after 0", () => {
+  const dir = mkdtempSync(join(tmpdir(), "hf-late-first-frame-"));
+  // Every frame a different grey, so two frames are equal only when they show the same source frame.
+  const picture = (seconds: number) => [
+    "-f",
+    "lavfi",
+    "-i",
+    `nullsrc=size=64x36:rate=24:duration=${seconds},geq=lum='mod(N*37\\,256)':cb=128:cr=128`,
+  ];
+  const h264 = ["-c:v", "libx264", "-bf", "3", "-pix_fmt", "yuv420p"];
+
+  beforeAll(() => {
+    const fragmented = join(dir, "fragment-cut.mp4");
+    ffmpeg([
+      ...picture(3.125),
+      ...h264,
+      "-video_track_timescale",
+      "12288",
+      "-movflags",
+      "cmaf",
+      fragmented,
+    ]);
+    delayFragments(fragmented, 2048);
+    ffmpeg([
+      ...picture(3),
+      "-c:v",
+      "libvpx-vp9",
+      "-deadline",
+      "realtime",
+      "-output_ts_offset",
+      "0.52",
+      join(dir, "late.webm"),
+    ]);
+    ffmpeg([...picture(3.125), ...h264, "-output_ts_offset", "1.5", join(dir, "edit-list.mp4")]);
+  }, 60_000);
+
+  afterAll(() => rmSync(dir, { recursive: true, force: true }), 30_000);
+
+  const frameBytes = (
+    extracted: Awaited<ReturnType<typeof extractVideoFramesRange>>,
+    time: number,
+  ) => {
+    const path = getFrameAtTime(extracted, time, 0);
+    return path === null ? null : readFileSync(path);
+  };
+
+  // The browser counts these files from timestamp 0; FFmpeg counts from the first one.
+  it.each([
+    { source: "fragment-cut.mp4", firstFrameAt: 0.25 },
+    { source: "late.webm", firstFrameAt: 0.52 },
+    { source: "edit-list.mp4", firstFrameAt: 1.5 },
+  ])(
+    "$source extracts every frame the browser plays, each at its timestamp",
+    async ({ source, firstFrameAt }) => {
+      const path = join(dir, source);
+      const playable = resolvePlayableVideoDuration(await extractMediaMetadata(path));
+      const extracted = await extractVideoFramesRange(path, source, 0, playable, {
+        fps: 30,
+        outputDir: join(dir, `frames-${source}`),
+      });
+      expect(extracted.totalFrames).toBe(Math.round(playable * 30));
+      const sourceFrameAt = (slot: number) =>
+        Math.max(0, Math.floor((slot / 30 - firstFrameAt) * 24 + 1e-6));
+      const slots = Array.from({ length: extracted.totalFrames }, (_, slot) =>
+        readFileSync(extracted.framePaths.get(slot)!),
+      );
+      for (let slot = 1; slot < slots.length; slot += 1) {
+        expect(slots[slot]!.equals(slots[slot - 1]!), `slot ${slot}`).toBe(
+          sourceFrameAt(slot) === sourceFrameAt(slot - 1),
+        );
+      }
+
+      const first = frameBytes(extracted, firstFrameAt + 0.03);
+      if (firstFrameAt < 1) {
+        expect(frameBytes(extracted, 0)).toEqual(first);
+      } else {
+        expect(frameBytes(extracted, firstFrameAt - 1.1)).toBeNull();
+        expect(frameBytes(extracted, firstFrameAt - 0.9)).toEqual(first);
+      }
+
+      const ranged = await extractVideoFramesRange(path, `${source}-ranged`, 0, playable, {
+        fps: 30,
+        outputDir: join(dir, `ranged-${source}`),
+        frameRanges: [
+          { firstFrame: 0, frames: 5 },
+          { firstFrame: 40, frames: 10 },
+        ],
+      });
+      expect(ranged.framePaths.size).toBe(15);
+      for (const [index, framePath] of ranged.framePaths) {
+        expect(readFileSync(framePath), `frame ${index}`).toEqual(
+          readFileSync(extracted.framePaths.get(index)!),
+        );
+      }
+    },
+    30_000,
+  );
+});

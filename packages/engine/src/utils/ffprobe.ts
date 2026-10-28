@@ -207,6 +207,8 @@ export interface VideoMetadata {
   videoStreamStartSeconds?: number;
   /** Seconds after the file's media time 0 (its earliest audio/video stream start) at which video begins. */
   videoStreamLeadSeconds?: number;
+  /** How far the browser's media time runs ahead of the file's: it counts an MP4 or WebM from timestamp 0. */
+  mediaTimeOffsetSeconds?: number;
   width: number;
   height: number;
   fps: number;
@@ -510,6 +512,21 @@ export async function buildProbeFactsText(filePath: string, signal?: AbortSignal
     if (signal?.aborted) throw signal.reason;
   }
   return JSON.stringify(facts);
+}
+
+/** Where the video begins on the media timeline the browser plays. */
+export function videoStartOnMediaTimeline(
+  metadata: Pick<VideoMetadata, "videoStreamLeadSeconds" | "mediaTimeOffsetSeconds">,
+): number {
+  return (metadata.videoStreamLeadSeconds ?? 0) + (metadata.mediaTimeOffsetSeconds ?? 0);
+}
+
+/** FFmpeg's input `-ss` for a media time: FFmpeg counts from the file's earliest stream start. */
+export function ffmpegSeekSeconds(
+  metadata: Pick<VideoMetadata, "mediaTimeOffsetSeconds">,
+  mediaTime: number,
+): number {
+  return mediaTime - (metadata.mediaTimeOffsetSeconds ?? 0);
 }
 
 export function resolvePlayableVideoDuration(metadata: VideoMetadata): number {
@@ -1004,6 +1021,7 @@ export async function extractMediaMetadata(filePath: string): Promise<VideoMetad
       videoStreamDurationSeconds: effectiveStreamDuration,
       videoStreamStartSeconds: streamStart,
       videoStreamLeadSeconds: streamLeadSeconds(output, videoStream),
+      mediaTimeOffsetSeconds: mediaTimeOffsetSeconds(output),
       width: videoStream.width || stillImage()?.width || 0,
       height: videoStream.height || stillImage()?.height || 0,
       fps,
@@ -1254,7 +1272,7 @@ async function probeAudioMetadata(filePath: string, signal?: AbortSignal): Promi
   };
 }
 
-/** Chrome's media time 0 is the earliest of these; a stream starting later plays that much in. */
+/** A stream starting after the earliest of these plays that much after it. */
 function audioVideoStreamStarts(output: FFProbeOutput | null): number[] {
   return (output?.streams ?? [])
     .filter(
@@ -1269,6 +1287,13 @@ function streamLeadSeconds(output: FFProbeOutput | null, stream: FFProbeStream):
   const starts = audioVideoStreamStarts(output);
   const start = parseFloat(stream.start_time ?? "");
   return Number.isFinite(start) && starts.length > 0 ? Math.max(0, start - Math.min(...starts)) : 0;
+}
+
+// Transport streams start their clock anywhere (MPEG-TS at 1.4 s); their earliest stream is media time 0.
+function mediaTimeOffsetSeconds(output: FFProbeOutput | null): number {
+  const starts = audioVideoStreamStarts(output);
+  const countsFromZero = /\b(mp4|webm)\b/.test(output?.format.format_name ?? "");
+  return countsFromZero && starts.length > 0 ? Math.max(0, Math.min(...starts)) : 0;
 }
 
 function latestStreamLeadSeconds(output: FFProbeOutput): number {
