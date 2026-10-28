@@ -29,6 +29,7 @@ import { displayPathFromBase, readOptionalString, resolveFromBase } from "../uti
 import { trackCompareSheet } from "../telemetry/events.js";
 import { serveStaticProjectHtml } from "../utils/staticProjectServer.js";
 import { withMeta } from "../utils/updateCheck.js";
+import { jsonFailure } from "../utils/jsonError.js";
 
 const COMPOSITION_ID = "grade-compare";
 const COMPOSITION_DURATION = "1";
@@ -687,7 +688,7 @@ export default defineCommand({
     } catch (err) {
       const message = normalizeErrorMessage(err);
       if (jsonRequested) {
-        printJson({ ok: false, error: message });
+        printJson(jsonFailure("runtime_error", message));
       } else {
         console.error(`\n${c.error("✗")} Grade compare failed: ${message}`);
       }

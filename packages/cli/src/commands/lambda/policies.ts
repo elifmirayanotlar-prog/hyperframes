@@ -24,6 +24,7 @@ import { CliUsageError, failUsage, setCommandExitCode } from "../../utils/comman
 import { readFileSync } from "node:fs";
 import { c } from "../../ui/colors.js";
 import { normalizeErrorMessage } from "../../utils/errorMessage.js";
+import { jsonFailure } from "../../utils/jsonError.js";
 
 export type PoliciesVerb = "role" | "user" | "validate";
 
@@ -264,7 +265,7 @@ export async function runPolicies(args: PoliciesArgs): Promise<void> {
         const msg =
           "[lambda policies validate] usage: hyperframes lambda policies validate <policy.json>";
         if (args.json) {
-          console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
+          console.log(JSON.stringify(jsonFailure("usage_error", msg), null, 2));
           failUsage();
         }
         throw new CliUsageError(msg);
@@ -275,7 +276,7 @@ export async function runPolicies(args: PoliciesArgs): Promise<void> {
       } catch (err) {
         const msg = normalizeErrorMessage(err);
         if (args.json) {
-          console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
+          console.log(JSON.stringify(jsonFailure("runtime_error", msg), null, 2));
           setCommandExitCode(1);
           return;
         }

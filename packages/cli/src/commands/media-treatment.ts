@@ -37,6 +37,7 @@ import { readJsonFlag } from "../utils/jsonFlag.js";
 import { resolveProject } from "../utils/project.js";
 import { withMeta } from "../utils/updateCheck.js";
 import { analyzeMediaTreatment } from "./media-treatment-analysis.js";
+import { jsonFailure } from "../utils/jsonError.js";
 
 export function getMediaTreatmentCapabilityOverview() {
   const capabilities = getHfColorGradingCapabilities();
@@ -770,7 +771,7 @@ async function printMutation(args: MediaTreatmentCommandArgs): Promise<void> {
 
 function printFailure(error: unknown, json: boolean): void {
   const message = normalizeErrorMessage(error);
-  if (json) console.log(JSON.stringify(withMeta({ ok: false, error: message })));
+  if (json) console.log(JSON.stringify(withMeta(jsonFailure("runtime_error", message))));
   else console.error(`${c.error("✗")} ${message}`);
   failCommand(1, error);
 }

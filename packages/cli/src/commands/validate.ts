@@ -25,6 +25,7 @@ import {
   seekCompositionTimeline,
   waitForRuntimeReady,
 } from "../capture/captureCompositionFrame.js";
+import { jsonFailure } from "../utils/jsonError.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -614,7 +615,10 @@ function emitFailureReport(message: string, asJson: boolean): void {
   if (asJson) {
     console.log(
       JSON.stringify(
-        withMeta({ ok: false, error: message, errors: [], warnings: [] }, { deprecated: true }),
+        withMeta(
+          { ...jsonFailure("runtime_error", message), errors: [], warnings: [] },
+          { deprecated: true },
+        ),
         null,
         2,
       ),

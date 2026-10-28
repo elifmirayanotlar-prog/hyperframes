@@ -101,6 +101,18 @@ function expectQuiet(run: Run): void {
   expect(output).not.toMatch(NAG);
 }
 
+function declaresJson(command: CommandDef): boolean {
+  const args = command.args;
+  return typeof args === "object" && args !== null && "json" in args;
+}
+
+function expectJsonFailure(run: Run, code?: string): void {
+  const parsed = JSON.parse(run.stdout) as { ok?: unknown; error?: { code?: unknown } };
+  expect(parsed.ok).toBe(false);
+  expect(typeof parsed.error?.code).toBe("string");
+  if (code) expect(parsed.error?.code).toBe(code);
+}
+
 const commands = await registeredCommands();
 // From source, `preview` refuses to load until the studio packages are built; the test job does
 // not build them, so preview is only spawned where they are.
@@ -127,6 +139,31 @@ describe("agent-mode contract", () => {
         expectQuiet(run);
         expect(run.code, run.stderr).toBe(0);
         expect(run.stdout).toContain("USAGE");
+      },
+    );
+
+    it.each(
+      spawnable
+        .filter((c) => declaresJson(c.command))
+        .map((c) => [c.path.join(" "), c.path] as const),
+    )("%s --json answers a usage error with the JSON envelope", async (_label, path) => {
+      const run = await runAsAgent([...path, "--json", "--not-a-real-flag"]);
+      expectQuiet(run);
+      expect(run.code, run.stderr).toBe(2);
+      expectJsonFailure(run);
+    });
+
+    it.each(
+      spawnable
+        .filter((c) => !declaresJson(c.command))
+        .map((c) => [c.path.join(" "), c.path] as const),
+    )(
+      "%s has no JSON output, so --json is a usage error, answered as JSON",
+      async (_label, path) => {
+        const run = await runAsAgent([...path, "--json"]);
+        expectQuiet(run);
+        expect(run.code, run.stderr).toBe(2);
+        expectJsonFailure(run);
       },
     );
 
@@ -186,6 +223,21 @@ describe("agent-mode contract", () => {
       expect(run.stderr).toContain(hint);
     },
   );
+
+  it("a runtime failure under --json is an envelope that says why, not empty stdout", async () => {
+    const run = await runAsAgent(["info", "--json"]);
+    expectQuiet(run);
+    expect(run.code).toBe(1);
+    expectJsonFailure(run, "runtime_error");
+    expect(run.stdout).toContain("No composition found");
+  });
+
+  it("an unknown command under --json is an envelope with the suggestion", async () => {
+    const run = await runAsAgent(["rendr", "--json"]);
+    expect(run.code).toBe(2);
+    expectJsonFailure(run, "unknown_command");
+    expect(JSON.parse(run.stdout).error.hint).toBe("Did you mean 'hyperframes render'?");
+  });
 
   it("an unknown flag suggests the flag it most likely means", async () => {
     const run = await runAsAgent(["render", "--out", "x.mp4"]);

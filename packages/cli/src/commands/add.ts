@@ -1,6 +1,7 @@
 import { failCommand } from "../utils/commandResult.js";
 import { defineCommand } from "../utils/defineCommand.js";
 import type { Example } from "./_examples.js";
+import { jsonFailure } from "../utils/jsonError.js";
 
 export const examples: Example[] = [
   ["Add a block to the current project", "hyperframes add claude-code-window"],
@@ -556,7 +557,7 @@ export default defineCommand({
       // Not a single item — try as a tag for bulk install
       if (!(singleErr instanceof AddError) || singleErr.code !== "unknown-item") {
         const msg = singleErr instanceof Error ? singleErr.message : String(singleErr);
-        if (json) console.log(JSON.stringify({ ok: false, error: msg }));
+        if (json) console.log(JSON.stringify(jsonFailure("runtime_error", msg)));
         else console.error(c.error(msg));
         failCommand();
       }
@@ -579,7 +580,7 @@ export default defineCommand({
 
       if (items.length === 0) {
         const msg = singleErr instanceof Error ? singleErr.message : String(singleErr);
-        if (json) console.log(JSON.stringify({ ok: false, error: msg }));
+        if (json) console.log(JSON.stringify(jsonFailure("runtime_error", msg)));
         else console.error(c.error(msg));
         failCommand();
       }

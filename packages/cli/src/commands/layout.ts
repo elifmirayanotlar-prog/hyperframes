@@ -38,6 +38,7 @@ import {
   waitForRuntimeReady,
   type SeekCompositionTimelineOptions,
 } from "../capture/captureCompositionFrame.js";
+import { jsonFailure } from "../utils/jsonError.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -407,8 +408,7 @@ function resolveMotionSpec(specPath: string, json: boolean): MotionSpec {
         withMeta(
           {
             schemaVersion: INSPECT_SCHEMA_VERSION,
-            ok: false,
-            error: message,
+            ...jsonFailure("runtime_error", message),
             issues: [],
             errorCount: 0,
             warningCount: 0,
@@ -630,8 +630,7 @@ export function createInspectCommand(commandName: "inspect" | "layout") {
               withMeta(
                 {
                   schemaVersion: INSPECT_SCHEMA_VERSION,
-                  ok: false,
-                  error: message,
+                  ...jsonFailure("runtime_error", message),
                   issues: [],
                   errorCount: 0,
                   warningCount: 0,

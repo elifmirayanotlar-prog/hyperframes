@@ -27,6 +27,7 @@ import { serveStaticProjectHtml } from "../utils/staticProjectServer.js";
 import { withMeta } from "../utils/updateCheck.js";
 import type { Example } from "./_examples.js";
 import { isPathInside } from "@hyperframes/parsers/asset-paths";
+import { jsonFailure } from "../utils/jsonError.js";
 
 const MAX_COMPARE_VARIANTS = 16;
 const MAX_COLUMNS = 4;
@@ -442,7 +443,7 @@ export default defineCommand({
     } catch (err) {
       const message = normalizeErrorMessage(err);
       if (jsonRequested) {
-        printJson({ ok: false, error: message });
+        printJson(jsonFailure("runtime_error", message));
       } else {
         console.error(`\n${c.error("✗")} Compare failed: ${message}`);
       }
