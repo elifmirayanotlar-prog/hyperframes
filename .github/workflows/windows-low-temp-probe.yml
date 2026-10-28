@@ -40,7 +40,7 @@ jobs:
         run: |
           $vhd = "$env:RUNNER_TEMP\small.vhdx"
           @"
-          create vdisk file="$vhd" maximum=300 type=fixed
+          create vdisk file="$vhd" maximum=1200 type=fixed
           select vdisk file="$vhd"
           attach vdisk
           create partition primary
@@ -52,7 +52,7 @@ jobs:
           $project = "$env:RUNNER_TEMP\video-project"
           New-Item -ItemType Directory -Force -Path $project | Out-Null
           Set-Location $project
-          ffmpeg -y -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=12" -c:v libx264 -pix_fmt yuv420p -g 30 1.mp4
+          ffmpeg -y -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=24" -c:v libx264 -pix_fmt yuv420p -g 30 1.mp4
           @'
           <!doctype html>
           <html lang="en">
@@ -65,8 +65,8 @@ jobs:
               </style>
             </head>
             <body>
-              <div id="root" data-composition-id="root" data-start="0" data-duration="12" data-width="1920" data-height="1080">
-                <video id="v" src="1.mp4" data-start="0" muted data-duration="12" data-track-index="0" data-media-start="0"></video>
+              <div id="root" data-composition-id="root" data-start="0" data-duration="24" data-width="1920" data-height="1080">
+                <video id="v" src="1.mp4" data-start="0" muted data-duration="24" data-track-index="0" data-media-start="0"></video>
               </div>
               <script>window.__timelines = window.__timelines || {};</script>
             </body>
