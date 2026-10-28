@@ -1171,8 +1171,6 @@ export function resetCaptureAttemptProgress(job: { framesRendered?: number }): v
 }
 
 const FIRST_FRAME_STALL_MS = 300_000;
-// What follows the last frame (closing workers, merging, the completeness scan) lands no frame, so it gets the
-// first frame's budget, not the between-frames one.
 const TAIL_STALL_MS = FIRST_FRAME_STALL_MS;
 
 /** The no-progress rule for capture stages that have no watchdog of their own: disk, HDR, chunk. Once
