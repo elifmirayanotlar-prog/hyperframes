@@ -24,6 +24,8 @@ interface Index {
 let index: Index | undefined;
 // caches this tab dropped since its last save, which another tab's older snapshot must not bring back
 const dropped = new Set<string>();
+// sources this tab recorded a new version of since its last save; another tab's newer ETag wins for the rest
+const versioned = new Set<string>();
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let warned = false;
 
@@ -72,6 +74,14 @@ function laterOf(own: CacheEntry | undefined, theirs: CacheEntry): CacheEntry | 
   return { usedAt: theirs.usedAt, bytes: Math.max(theirs.bytes, own?.bytes ?? 0) };
 }
 
+/** Each source's ETag as saved, except the ones this tab moved on since, which are its own. */
+function mergedEtags(mine: Index["etags"], theirs: Index["etags"]): Index["etags"] {
+  const etags = { ...mine, ...theirs };
+  for (const key of versioned) etags[key] = mine[key]!;
+  versioned.clear();
+  return etags;
+}
+
 /** This tab's index with what other tabs saved since: each cache at its latest use, none this tab dropped. */
 function mergedIndex(): Index {
   const mine = loadIndex();
@@ -80,7 +90,7 @@ function mergedIndex(): Index {
     const later = dropped.has(name) ? undefined : laterOf(mine.caches[name], entry);
     if (later) mine.caches[name] = later;
   }
-  mine.etags = { ...theirs.etags, ...mine.etags };
+  mine.etags = mergedEtags(mine.etags, theirs.etags);
   dropped.clear();
   return mine;
 }
@@ -122,6 +132,7 @@ export const rememberVersion = (stored: StoredSource) =>
     const saved = loadIndex();
     if (saved.etags[key] === stored.etag) return;
     saved.etags[key] = stored.etag;
+    versioned.add(key);
     saveIndexSoon();
     const keep = await cacheNameOf(stored);
     for (const name of await caches.keys()) {
