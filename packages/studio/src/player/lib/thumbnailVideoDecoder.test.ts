@@ -16,6 +16,8 @@ const input = {
   getPrimaryVideoTrack: vi.fn(),
   dispose,
 };
+// The ETag the mocked server answers the reader's reads with; none unless a test sets one.
+let servedEtag: string | undefined;
 
 vi.mock("mediabunny", () => ({
   ALL_FORMATS: {},
@@ -25,6 +27,7 @@ vi.mock("mediabunny", () => ({
       readonly options?: { getRetryDelay?: unknown; cancelReads?: () => void },
     ) {
       sourceRetryRules.push(typeof options?.getRetryDelay);
+      if (servedEtag && options) Object.assign(options, { etagOf: () => servedEtag });
       // Spied where the pool reads it, after constructing the source.
       if (options?.cancelReads)
         cancelledReads.push((options.cancelReads = vi.fn(options.cancelReads)));
@@ -69,6 +72,8 @@ let sources = 0;
 let source = "";
 
 beforeEach(() => {
+  vi.unstubAllGlobals();
+  servedEtag = undefined;
   source = `/clip-${++sources}.mp4`;
   // Released frames outlive their test; evict them so each test counts only its own revokes.
   releaseSharedFrames([], 0);
@@ -926,5 +931,53 @@ describe("decodeVideoThumbnail's shared source", () => {
     await decodeVideoThumbnail(clip(6), signal);
     // A UrlSource counts its own retries (mediaUrlSourceOptions), so a fresh one retries afresh.
     expect(sourceRetryRules).toEqual(["function", "function"]);
+  });
+
+  it("paints a strip from a past session's frames on disk, without opening the file", async () => {
+    const stores = new Map<string, Map<string, Response>>();
+    vi.stubGlobal("caches", {
+      open: async (name: string) => {
+        const store = stores.get(name) ?? new Map<string, Response>();
+        stores.set(name, store);
+        return {
+          match: async (url: string) => store.get(url)?.clone(),
+          put: async (url: string, response: Response) => void store.set(url, response),
+        };
+      },
+      has: async (name: string) => stores.has(name),
+      keys: async () => [...stores.keys()],
+      delete: async (name: string) => stores.delete(name),
+    });
+    localStorage.clear();
+    const signal = new AbortController().signal;
+    servedEtag = '"take-v1"';
+    recordDecodes([]);
+    const request = { source, sourceStart: 0, sourceRangeDuration: 4, frameCount: 2 };
+    await decodeVideoThumbnail({ ...request, contentVersion: "session-1" }, signal);
+    // the source's facts and its three frames, then the index the next session reads
+    await vi.waitFor(() => expect([...stores.values()][0]?.size).toBe(4));
+    await vi.waitFor(
+      () => expect(localStorage.getItem("hf-thumbnails-index")).toContain("take-v1"),
+      {
+        timeout: 3000,
+      },
+    );
+
+    vi.resetModules();
+    const nextSession = await import("./thumbnailVideoDecoder");
+    const validate = vi.fn(async () => new Response(null, { status: 304 }));
+    vi.stubGlobal("fetch", validate);
+    input.getPrimaryVideoTrack.mockClear();
+    canvasesAtTimestamps.mockClear();
+    const result = await nextSession.decodeVideoThumbnail(
+      { ...request, contentVersion: "session-2" },
+      signal,
+    );
+
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(input.getPrimaryVideoTrack).not.toHaveBeenCalled();
+    expect(canvasesAtTimestamps).not.toHaveBeenCalled();
+    expect(result.value).toMatchObject({ kind: "filmstrip" });
+    expect((result.value as { urls: string[] }).urls).toHaveLength(3);
   });
 });
