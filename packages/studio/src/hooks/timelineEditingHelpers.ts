@@ -388,23 +388,17 @@ export function operationChanges(
 }
 
 const RENAMED_MOUNT = /__hf\d+"?\]?$/;
-
-const idLookup = (id: string) => (RENAMED_MOUNT.test(id) ? "runtime-renamed id" : "id");
-
-function selectorLookupBesidesId(selector: string): string | null {
-  if (selector.startsWith("[data-composition-id="))
-    return RENAMED_MOUNT.test(selector) ? "runtime-renamed composition id" : "composition id";
-  return /^\.[\w-]+$/.test(selector) ? "class" : null;
-}
+const lookup = (value: string, kind: string) =>
+  RENAMED_MOUNT.test(value) ? `runtime-renamed ${kind}` : kind;
+const selectorLookup = (selector: string) =>
+  selector.startsWith("[data-composition-id=")
+    ? lookup(selector, "composition id")
+    : /^\.[\w-]+$/.test(selector) && "class";
 
 function missedLookups(element: Pick<TimelineElement, "sourceFile">, target: PatchTarget): string {
-  const kinds = [
-    target.hfId && "hf-id",
-    target.id && idLookup(target.id),
-    target.selector && selectorLookupBesidesId(target.selector),
-  ].filter(Boolean);
-  const by = kinds.length > 0 ? kinds.join(", ") : "nothing";
-  return `by ${by}; ${element.sourceFile ? "file from the clip" : "no file on the clip"}`;
+  const kinds = [target.hfId && "hf-id", target.id && lookup(target.id, "id")];
+  const by = [...kinds, target.selector && selectorLookup(target.selector)].filter(Boolean);
+  return `by ${by.join(", ") || "nothing"}; ${element.sourceFile ? "file from the clip" : "no file on the clip"}`;
 }
 
 /** Patches each change into `source`, failing loudly on a target the file does not hold. */
