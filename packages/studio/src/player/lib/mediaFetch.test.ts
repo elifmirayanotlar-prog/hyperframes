@@ -212,6 +212,29 @@ describe("mediaUrlSourceOptions", () => {
     }
   });
 
+  it("never cuts off a request still waiting for its answer, however long it queues", async () => {
+    // Chrome queues a request for one of six connections per host, which streaming previews may hold.
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) =>
+            setTimeout(() => resolve(new Response("", { status: 206 })), 20_000),
+          ),
+      ),
+    );
+    try {
+      const answer = mediaUrlSourceOptions("thumbnail").fetchFn(URL_WITH_PATH, {
+        headers: { Range: "bytes=0-" },
+      });
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect((await answer).status).toBe(206);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("fails a body that sends nothing for 8 s as stalled, and aborts its fetch", async () => {
     vi.useFakeTimers();
     let sentSignal: AbortSignal | undefined;

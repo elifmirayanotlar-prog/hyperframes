@@ -30,7 +30,7 @@ export class MediaFetchError extends Error {
 }
 
 const MAX_RETRIES = 2;
-// A thumbnail read waiting this long for a byte is stalled. Three such waits plus mediabunny's 0.5 s and
+// A started thumbnail body silent this long is stalled. Three such waits plus mediabunny's 0.5 s and
 // 1 s retry delays (25.5 s) end inside the 30 s thumbnailLoadTimeoutMs, so a dead response fails typed.
 const STALL_MS = 8_000;
 // mediabunny asks for `bytes=N-` and cancels once it has its target, by when a local server has
@@ -78,8 +78,11 @@ const typedFailure = (reader: MediaReader, error: unknown, start: number) =>
 
 /**
  * One request's own abort, followed from mediabunny's signal and the reader's cancel. A thumbnail
- * read that waits STALL_MS for its answer or its next bytes aborts it as stalled: a stalled
- * response ignores every other signal, and mediabunny would wait on it for good.
+ * body that sends nothing for STALL_MS once it has started aborts as stalled: a stalled response
+ * ignores every other signal, and mediabunny would wait on it for good. The wait for the answer
+ * is not timed: it includes Chrome's queue for one of six connections per host, which streaming
+ * previews can hold for any length of time. A job that gets no answer at all fails at its own
+ * timeout (thumbnailVideoDecoder).
  */
 function watchedRequest(reader: MediaReader, parents: readonly AbortSignal[]) {
   const controller = new AbortController();
@@ -155,7 +158,7 @@ async function typedFetch(
   let response: Response;
   try {
     // oxlint-disable-next-line no-restricted-globals -- a media read, on the media's sockets like mediabunny's own
-    response = await request.wait(fetch(input, { ...sent, signal: request.signal }));
+    response = await fetch(input, { ...sent, signal: request.signal });
   } catch (error) {
     request.done();
     throw request.failure(error, asked);

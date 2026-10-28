@@ -383,6 +383,8 @@ describe("ThumbnailScheduler", () => {
     await vi.advanceTimersByTimeAsync(11);
     await flush();
     expect(signal?.aborted).toBe(true);
+    // Said apart from a cancel: a job that timed out without progress failed its source.
+    expect(signal?.reason).toMatchObject({ name: "TimeoutError" });
     expect(nextLoad).toHaveBeenCalledTimes(1);
     expect(scheduler.getSnapshot(hungRequest).status).toBe("error");
 

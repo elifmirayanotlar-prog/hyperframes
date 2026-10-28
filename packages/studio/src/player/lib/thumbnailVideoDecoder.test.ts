@@ -717,6 +717,147 @@ describe("decodeVideoThumbnail's shared source", () => {
     }
   });
 
+  const timedOut = () => new DOMException("Thumbnail load timed out", "TimeoutError");
+  const TIMEOUT_LINE = "[Studio] thumbnail range fetch failed: network timeout after 0 retries";
+  // A read that never returns until its reader is disposed, like one on a source that never answers.
+  const untilDisposed = () =>
+    new Promise<never>((_, reject) =>
+      dispose.mockImplementationOnce(() => reject(new Error("Input disposed"))),
+    );
+
+  it("fails a job that times out without progress as its source's failure, once, and drops the reader", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    recordDecodes([]);
+    await decodeVideoThumbnail(clip(0), signal);
+    const stalled = untilDisposed();
+    canvasesAtTimestamps.mockImplementationOnce(async function* () {
+      yield await stalled;
+    });
+    const controller = new AbortController();
+    const stuck = decodeVideoThumbnail(clip(6), controller.signal);
+    await vi.waitFor(() => expect(canvasesAtTimestamps).toHaveBeenCalledTimes(2));
+    controller.abort(timedOut());
+
+    await expect(stuck).rejects.toThrow("Input disposed");
+    expect(warn.mock.calls).toEqual([[TIMEOUT_LINE]]);
+    await decodeVideoThumbnail(clip(12), signal);
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the reader when a job times out after decoding a frame", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    recordDecodes([]);
+    await decodeVideoThumbnail(clip(0), signal);
+    canvasesAtTimestamps.mockImplementationOnce(async function* (
+      timestamps: AsyncIterable<number>,
+    ) {
+      await timestamps[Symbol.asyncIterator]().next();
+      yield { canvas: document.createElement("canvas") };
+      await new Promise(() => {});
+    });
+    const controller = new AbortController();
+    void decodeVideoThumbnail(clip(6), controller.signal).catch(() => {});
+    await vi.waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledTimes(4));
+    controller.abort(timedOut());
+
+    await decodeVideoThumbnail(clip(12), signal);
+    expect(warn).not.toHaveBeenCalled();
+    expect(dispose).not.toHaveBeenCalled();
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails a job that times out waiting for its source to open, and the next clip opens afresh", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const stalled = untilDisposed();
+    input.getPrimaryVideoTrack.mockImplementationOnce(() => stalled);
+    const controller = new AbortController();
+    const waiting = decodeVideoThumbnail(clip(0), controller.signal);
+    await vi.waitFor(() => expect(input.getPrimaryVideoTrack).toHaveBeenCalledOnce());
+    controller.abort(timedOut());
+
+    await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
+    expect(warn.mock.calls).toEqual([[TIMEOUT_LINE]]);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    recordDecodes([]);
+    await expect(decodeVideoThumbnail(clip(6), signal)).resolves.toBeDefined();
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the reader of a slow open that finished, when the clip that waited for it times out", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let open!: () => void;
+    const opening = new Promise<void>((resolve) => (open = resolve));
+    const track = await input.getPrimaryVideoTrack();
+    input.getPrimaryVideoTrack.mockClear();
+    input.getPrimaryVideoTrack.mockImplementationOnce(async () => (await opening, track));
+    canvasesAtTimestamps.mockImplementationOnce(async function* () {
+      await new Promise(() => {});
+      yield null;
+    });
+    const controller = new AbortController();
+    void decodeVideoThumbnail(clip(0), controller.signal).catch(() => {});
+    open();
+    await vi.waitFor(() => expect(canvasesAtTimestamps).toHaveBeenCalledOnce());
+    controller.abort(timedOut());
+
+    recordDecodes([]);
+    await decodeVideoThumbnail(clip(6), signal);
+    expect(warn).not.toHaveBeenCalled();
+    expect(dispose).not.toHaveBeenCalled();
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a reader close when idle while a cancelled job is still stuck in a read on it", async () => {
+    vi.useFakeTimers();
+    try {
+      const budgets = resolveTimelineViewportBudgets({ thumbnailSourceIdleMs: 1_000 });
+      const stalled = untilDisposed();
+      canvasesAtTimestamps.mockImplementationOnce(async function* () {
+        yield await stalled;
+      });
+      const controller = new AbortController();
+      const stuck = decodeVideoThumbnail(clip(0), controller.signal, budgets);
+      stuck.catch(() => {});
+      await vi.waitFor(() => expect(canvasesAtTimestamps).toHaveBeenCalledOnce());
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(dispose).toHaveBeenCalledTimes(1);
+      await expect(stuck).rejects.toThrow("Input disposed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops a reader for one clip's timeout only once the clip still decoding on it ends", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    recordDecodes([]);
+    await decodeVideoThumbnail(clip(0), signal);
+    let go!: () => void;
+    const healthy = new Promise<void>((resolve) => (go = resolve));
+    canvasesAtTimestamps.mockImplementationOnce(async function* () {
+      await new Promise(() => {});
+      yield null;
+    });
+    canvasesAtTimestamps.mockImplementationOnce(async function* (
+      timestamps: AsyncIterable<number>,
+    ) {
+      for await (const _time of timestamps) {
+        await healthy;
+        yield { canvas: document.createElement("canvas") };
+      }
+    });
+    const controller = new AbortController();
+    void decodeVideoThumbnail(clip(6), controller.signal).catch(() => {});
+    const decoding = decodeVideoThumbnail(clip(12), signal);
+    await vi.waitFor(() => expect(canvasesAtTimestamps).toHaveBeenCalledTimes(3));
+    controller.abort(timedOut());
+    expect(dispose).not.toHaveBeenCalled();
+
+    go();
+    await expect(decoding).resolves.toMatchObject({ value: { kind: "filmstrip" } });
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the reader, and the clip decoding on it, when another clip on it times out", async () => {
     let unstick!: () => void;
     const stuck = new Promise<void>((resolve) => (unstick = resolve));

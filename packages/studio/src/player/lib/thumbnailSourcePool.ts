@@ -17,12 +17,15 @@ interface OpenedSource {
 export interface ThumbnailSource extends OpenedSource {
   /** Ends this job's use. A failed job retires the reader, so the next job opens a fresh one. */
   release(failed: boolean): void;
+  /** The job waited for the reader to open: the open finishing was progress the job saw. */
+  waitedForOpen: boolean;
 }
 
 interface PooledSource {
   version: string | undefined;
   input: Input | null;
   cancelReads: (() => void) | null;
+  ready: boolean;
   opened: Promise<OpenedSource>;
   users: number;
   idleTimer: ReturnType<typeof setTimeout> | null;
@@ -35,6 +38,9 @@ let mediabunnyModule: Promise<Mediabunny> | null = null;
 const loadMediabunny = () => (mediabunnyModule ??= import("mediabunny"));
 
 const abortError = () => new DOMException("Aborted", "AbortError");
+/** The scheduler's own timeout, as opposed to a cancel. */
+export const timedOut = (signal: AbortSignal) =>
+  (signal.reason as { name?: unknown } | null)?.name === "TimeoutError";
 const isAbortError = (error: unknown) =>
   (error as { name?: unknown } | null)?.name === "AbortError";
 
@@ -91,13 +97,17 @@ function pooledSource(source: string, version: string | undefined): PooledSource
     version,
     input: null,
     cancelReads: null,
+    ready: false,
     opened: open(source, () => entry),
     users: 0,
     idleTimer: null,
     disposed: false,
   };
   // A failed open leaves the pool at once; the jobs awaiting it see the failure themselves.
-  entry.opened.catch(() => retire(source, entry));
+  entry.opened.then(
+    () => (entry.ready = true),
+    () => retire(source, entry),
+  );
   pool.set(source, entry);
   return entry;
 }
@@ -122,6 +132,7 @@ export async function acquireThumbnailSource(
   idleMs: number,
 ): Promise<ThumbnailSource> {
   const entry = pooledSource(source, version);
+  const waitedForOpen = !entry.ready;
   entry.users += 1;
   if (entry.idleTimer !== null) clearTimeout(entry.idleTimer);
   entry.idleTimer = null;
@@ -139,9 +150,10 @@ export async function acquireThumbnailSource(
     }
   };
   try {
-    return { ...(await untilAborted(entry.opened, signal)), release };
+    return { ...(await untilAborted(entry.opened, signal)), release, waitedForOpen };
   } catch (error) {
-    release(!isAbortError(error));
+    // Timed out still waiting: the open made no progress in the job's whole run.
+    release(!isAbortError(error) || timedOut(signal));
     throw error;
   }
 }
