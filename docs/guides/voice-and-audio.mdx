@@ -91,7 +91,10 @@ with a speech-like tail is less likely to be mistaken for narration. These are
 guesses, not transcript labels. When you inspect a time range, kind uses the
 whole source span played by the clip; loudness, hits and the other measurements
 still describe the selected range. A short slice of a music bed therefore keeps
-the bed’s kind. See [audio analysis](/packages/cli#audio) for the command and output.
+the bed’s kind. Repeated range queries reuse that guess until the source or clip
+changes. If the whole clip cannot be analyzed, the result warns that kind uses
+only the selected range; the range’s other measurements are still returned.
+See [audio analysis](/packages/cli#audio) for the command and output.
 
 To dip the music only where the voice sits instead of turning it all down, use a
 [voiceover carve](/studio/audio-effects#make-music-sit-under-narration).
