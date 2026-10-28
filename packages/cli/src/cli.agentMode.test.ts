@@ -175,6 +175,7 @@ describe("agent-mode contract", () => {
     ["rendr", "Did you mean 'hyperframes render'?"],
     ["cloud rendr", "Did you mean 'hyperframes cloud render'?"],
     ["help rendr", "Did you mean 'hyperframes render'?"],
+    ["help cloud rendr", "Did you mean 'hyperframes cloud render'?"],
   ])(
     "unknown command `%s` suggests the closest one, usage on stderr, exit 2",
     async (args, hint) => {

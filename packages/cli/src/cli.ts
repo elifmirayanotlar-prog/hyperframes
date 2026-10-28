@@ -542,9 +542,21 @@ async function unknownCommandError(requested: ResolvedCommandUsage): Promise<Cli
   return new CliUsageError(`Unknown command: ${word}`, { presented: true });
 }
 
+// A group like `timeline` also takes a project directory, so a word it does not know may be one.
+function takesPositionals(command: CommandDef): boolean {
+  const args = command.args;
+  return (
+    typeof args === "object" &&
+    args !== null &&
+    Object.values(args).some((arg) => arg.type === "positional")
+  );
+}
+
 async function showRequestedUsage(print: (text: string) => void): Promise<void> {
   const requested = await resolveCommandUsage(main as CommandDef, argv);
-  if (!requested.parent && requested.unknownSubcommand) throw await unknownCommandError(requested);
+  if (requested.unknownSubcommand && !takesPositionals(requested.command)) {
+    throw await unknownCommandError(requested);
+  }
   return showUsage(requested.command, requested.parent, print);
 }
 
