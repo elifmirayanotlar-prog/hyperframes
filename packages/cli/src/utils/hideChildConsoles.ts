@@ -9,13 +9,17 @@ const ENTRY_POINTS = ["spawn", "spawnSync", "exec", "execSync", "execFile", "exe
 
 /** The call's arguments with `windowsHide: true` set unless the caller chose either way. */
 function hidden(command: string, rest: unknown[]): unknown[] {
+  // execSync prints a failed command's stderr; taskkill says so when its target already exited.
+  const defaults = /^taskkill\s/i.test(command)
+    ? { windowsHide: true, stdio: "ignore" }
+    : { windowsHide: true };
   const args = [...rest];
   const at = args.findIndex((arg) => arg && typeof arg === "object" && !Array.isArray(arg));
   if (at >= 0) {
-    args[at] = { windowsHide: true, ...(args[at] as object) };
+    args[at] = { ...defaults, ...(args[at] as object) };
   } else {
     const callback = args.findIndex((arg) => typeof arg === "function");
-    args.splice(callback < 0 ? args.length : callback, 0, { windowsHide: true });
+    args.splice(callback < 0 ? args.length : callback, 0, defaults);
   }
   return [command, ...args];
 }
