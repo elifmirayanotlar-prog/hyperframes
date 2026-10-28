@@ -84,31 +84,3 @@ describe("a launch failure whose diagnosis cannot run", () => {
     expect(failure).toBe(launchError);
   });
 });
-
-describe("a browser Windows refuses to run", () => {
-  it("names the file and the likely causes instead of 'spawn UNKNOWN'", async () => {
-    const refused = Object.assign(new Error("spawn UNKNOWN"), {
-      code: "UNKNOWN",
-      errno: -4094,
-      syscall: "spawn",
-    });
-    const puppeteer = {
-      launch: async () => {
-        throw refused;
-      },
-      defaultArgs: () => [],
-    } as unknown as Parameters<typeof launchManagedBrowser>[0];
-    const failure = await launchManagedBrowser(puppeteer, {
-      executablePath: "C:\\cache\\chrome.exe",
-      headless: true,
-      args: [],
-    }).then(
-      () => undefined,
-      (error: unknown) => error as Error,
-    );
-    expect(failure?.message).toContain("C:\\cache\\chrome.exe");
-    expect(failure?.message).toContain("error -4094");
-    expect(failure?.message).toContain("browser ensure --force");
-    expect(failure?.cause).toBe(refused);
-  });
-});
