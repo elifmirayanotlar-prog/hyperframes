@@ -13,8 +13,6 @@ export type HyperframeStaticGuardResult = {
   failureReason: HyperframeStaticFailureReason | null;
 };
 
-/** `project` lets the lint read the stylesheets the html links, as `hyperframes lint` does; without it only inline
- * `<style>` is seen. `compSrcPath` is the html's project-relative path, unless it is the root index.html. */
 export async function validateHyperframeHtmlContract(
   html: string,
   project?: { dir: string; compSrcPath?: string },
