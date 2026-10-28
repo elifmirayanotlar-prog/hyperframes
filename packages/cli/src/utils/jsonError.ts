@@ -23,8 +23,7 @@ export function jsonFailure(code: string, message: string, hint?: string): JsonF
   return { ok: false, error: hint ? { code, message, hint } : { code, message } };
 }
 
-/** Reports a caught failure as the --json envelope or one line on stderr, then fails the command
- * (exit 2 for a usage error, else 1). */
+/** Reports a caught failure as the --json envelope or one stderr line; exit 2 if usage, else 1. */
 export function failCaught(
   error: unknown,
   json: boolean,

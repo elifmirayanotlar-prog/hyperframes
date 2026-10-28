@@ -12,6 +12,7 @@ import { reportArtifacts } from "../utils/toolContext.js";
 import { withProjectLock } from "../utils/projectLock.js";
 import {
   parseSnapshotAt,
+  parseSnapshotFrames,
   parseSnapshotRange,
   sampleSnapshotRange,
   resolveSnapshotCompositionRange,
@@ -1484,7 +1485,7 @@ export default defineCommand({
       );
       if (clash) throw new CliUsageError(`--review picks its own frames; drop --${clash}`);
     }
-    const frames = parseInt(args.frames as string, 10) || 5;
+    const frames = args.frames === undefined ? 5 : parseSnapshotFrames(String(args.frames));
     const range = args.range === undefined ? undefined : parseSnapshotRange(String(args.range));
     const atTimestamps = args.at === undefined ? undefined : parseSnapshotAt(String(args.at));
     if (args.keep === true && atTimestamps) assertDistinctKeepNames(atTimestamps);

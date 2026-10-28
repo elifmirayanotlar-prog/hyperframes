@@ -653,8 +653,6 @@ async function runRenderBatch(args: Record<string, unknown>): Promise<void> {
     failUsage();
   }
   const fps = resolveCloudRunFps(args, projectDir, "render-batch");
-  // Check the render flags before any upload; inside the per-entry loop a bad flag would only
-  // count as N failed renders.
   buildRenderConfig(args, fps, width, height, undefined);
   if (!existsSync(resolve(batchPath))) {
     console.error(`[cloudrun render-batch] batch file not found: ${batchPath}`);

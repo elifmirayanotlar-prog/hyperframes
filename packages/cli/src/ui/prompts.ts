@@ -58,7 +58,7 @@ function lineSpinner(): SpinnerResult {
   };
   return {
     start: say,
-    message: say,
+    message: () => {},
     stop: say,
     cancel: say,
     error: say,
@@ -67,7 +67,7 @@ function lineSpinner(): SpinnerResult {
   };
 }
 
-/** Unattended, each start, progress and outcome message is written as one plain line on stderr. */
+/** Unattended, the start and outcome messages are each written as one plain line on stderr. */
 export function spinner(opts?: SpinnerOptions): SpinnerResult {
   return isUnattended() ? lineSpinner() : clack.spinner(opts);
 }

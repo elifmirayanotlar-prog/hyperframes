@@ -14,6 +14,12 @@ export function parseSnapshotRange(value: string): SnapshotRange {
     throw new CliUsageError("--range must be START,END in seconds, with 0 <= START < END");
   return [range[0]!, range[1]!];
 }
+export function parseSnapshotFrames(value: string): number {
+  const frames = Number(value);
+  if (value.trim() === "" || !Number.isInteger(frames) || frames < 1)
+    throw new CliUsageError("--frames must be a positive integer");
+  return frames;
+}
 export function parseSnapshotAt(value: string): number[] {
   const times = value.split(",").map((part) => (part.trim() === "" ? NaN : Number(part)));
   if (!times.every((time) => Number.isFinite(time) && time >= 0))

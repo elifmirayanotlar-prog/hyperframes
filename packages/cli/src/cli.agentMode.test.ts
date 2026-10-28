@@ -227,6 +227,8 @@ describe("agent-mode contract", () => {
       ["cloud delete render_1", "Confirmation required"],
       ["snapshot --at 1 --range 0,1", "Use only one of"],
       ["snapshot --at x", "--at must be"],
+      ["snapshot --frames abc", "--frames must be a positive integer"],
+      ["snapshot --frames -3", "--frames must be a positive integer"],
       ["compare a.html", "need 2+ paths"],
       ["compare a.html b.html --cols 0", "--cols must be"],
       ["grade-compare --for frame.png", "Exactly one of --grades or --luts"],
@@ -327,9 +329,9 @@ describe("agent-mode contract", () => {
     writeFileSync(join(project, "index.html"), "<!doctype html><html><body></body></html>");
     const run = await runAsAgent(["render", project, "--variables", "{bad", "--json"]);
     expectQuiet(run);
-    expect(run.code, run.stderr).toBe(1);
+    expect(run.code, run.stderr).toBe(2);
     expect(run.stdout.trim().split("\n")).toHaveLength(1);
-    expectJsonFailure(run, "runtime_error");
+    expectJsonFailure(run, "usage_error");
     expect(JSON.parse(run.stdout).error.message).toBe("Invalid JSON in --variables");
   });
 

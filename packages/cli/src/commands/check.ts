@@ -311,7 +311,6 @@ export function createCheckCommand(
   });
 }
 
-/** A bad flag is a usage error (exit 2); anything else is a failed check (exit 1). */
 function reportCheckFailure(
   error: unknown,
   asJson: boolean,

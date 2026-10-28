@@ -135,10 +135,9 @@ export function resolveVariablesArg(
   if (!result.ok) {
     const { title, message } = variablesErrorMessage(result.error);
     errorBox(title, message);
-    // The flags themselves are wrong (both given, or bad inline JSON); a file that cannot be read
-    // or holds bad JSON is a runtime failure.
     const { kind } = result.error;
-    if (kind === "conflict" || (inline != null && kind !== "read-error")) failUsage();
+    const flagsAreWrong = kind === "conflict" || (inline != null && kind !== "read-error");
+    if (flagsAreWrong) failUsage();
     failCommand();
   }
   return result.value;

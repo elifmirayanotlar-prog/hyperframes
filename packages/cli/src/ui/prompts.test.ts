@@ -46,18 +46,14 @@ describe("prompt wrapper", () => {
     }
   });
 
-  it("an unattended spinner writes its start, progress and outcome as plain lines on stderr", () => {
+  it("an unattended spinner writes its start and outcome, not its progress, on stderr", () => {
     const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       const spin = prompts.spinner();
       spin.start("\u001b[36mTranscoding\u001b[39m clip.mov");
       spin.message("Still transcoding...");
       spin.stop("\u001b[32mDone\u001b[39m");
-      expect(write.mock.calls).toEqual([
-        ["Transcoding clip.mov\n"],
-        ["Still transcoding...\n"],
-        ["Done\n"],
-      ]);
+      expect(write.mock.calls).toEqual([["Transcoding clip.mov\n"], ["Done\n"]]);
       expect(clack.spinner).not.toHaveBeenCalled();
     } finally {
       write.mockRestore();
