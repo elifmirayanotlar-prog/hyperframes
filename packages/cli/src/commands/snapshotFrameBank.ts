@@ -11,7 +11,7 @@ export interface SeekPlan {
   decodesFrom?: number;
 }
 
-/** A frame whose keyframe landing is known: decoding runs from `decodesFrom`, a seek to `seek` drops the rest, and it keeps the first frame at or after `seek + select`. */
+/** A frame whose decode is known: it runs from `decodesFrom`, `-ss seek` drops the rest, and `seek + select` is the cut. */
 export interface PlannedFrame extends FrameWant {
   seek: number;
   select: number;
@@ -27,7 +27,7 @@ interface FrameBankDeps {
 const slotKey = (path: string, want: FrameWant) =>
   `${path}\0${want.time.toFixed(6)}\0${want.displayedPixels}\0${want.holdLastFrame}`;
 
-/** Frames whose decode runs overlap share one pass: a source with a single keyframe decodes once, not once per frame. */
+/** Frames whose decode runs overlap share one pass: a one-keyframe source decodes once, not once per frame. */
 export function groupOverlappingDecodes(frames: PlannedFrame[]): PlannedFrame[][] {
   const sorted = [...frames].sort((a, b) => a.decodesFrom - b.decodesFrom);
   const groups: PlannedFrame[][] = [];

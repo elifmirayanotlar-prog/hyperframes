@@ -542,7 +542,7 @@ function warnNoHdrFiltersOnce(): void {
 
 type VideoMetadata = Awaited<ReturnType<typeof extractMediaMetadata>>;
 
-/** The source's colour metadata and, for HDR footage, the tone map the SDR export uses, so a still matches the render. */
+/** The source's colour metadata and, for HDR footage, the SDR export's tone map, so a still matches the render. */
 async function videoColour(ffmpegPath: string, videoPath: string) {
   const metadata: VideoMetadata | null = findFFprobe()
     ? await extractMediaMetadata(videoPath)
@@ -641,7 +641,7 @@ export async function extractVideoFrameToBuffer(
   }
 }
 
-/** The `select` that keeps, for each time in `offsets`, the first frame at or after it: one stream, one frame per time. */
+/** The `select` that keeps the first frame at or after each of `offsets`: one stream, one frame per time. */
 export function selectFirstFrameAfterEach(offsets: number[]): string {
   const sinceLast = "if(isnan(prev_selected_t)\\,-1\\,prev_selected_t-start_t)";
   const open = offsets.map((offset) => `gte(t-start_t\\,${offset})*gt(${offset}\\,${sinceLast})`);
