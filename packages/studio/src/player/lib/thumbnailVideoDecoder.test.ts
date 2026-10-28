@@ -114,6 +114,26 @@ describe("videoThumbnailTimestamps", () => {
   });
 });
 
+/** Cache Storage as a Map of Maps, empty, with an empty index: what a browser keeps across sessions. */
+function stubCacheStorage(): Map<string, Map<string, Response>> {
+  const stores = new Map<string, Map<string, Response>>();
+  vi.stubGlobal("caches", {
+    open: async (name: string) => {
+      const store = stores.get(name) ?? new Map<string, Response>();
+      stores.set(name, store);
+      return {
+        match: async (url: string) => store.get(url)?.clone(),
+        put: async (url: string, response: Response) => void store.set(url, response),
+      };
+    },
+    has: async (name: string) => stores.has(name),
+    keys: async () => [...stores.keys()],
+    delete: async (name: string) => stores.delete(name),
+  });
+  localStorage.clear();
+  return stores;
+}
+
 describe("decodeVideoThumbnail", () => {
   it("extracts sparse frames, returns object URLs, and disposes once", async () => {
     const decoded: number[][] = [];
@@ -934,21 +954,7 @@ describe("decodeVideoThumbnail's shared source", () => {
   });
 
   it("paints a strip from a past session's frames on disk, without opening the file", async () => {
-    const stores = new Map<string, Map<string, Response>>();
-    vi.stubGlobal("caches", {
-      open: async (name: string) => {
-        const store = stores.get(name) ?? new Map<string, Response>();
-        stores.set(name, store);
-        return {
-          match: async (url: string) => store.get(url)?.clone(),
-          put: async (url: string, response: Response) => void store.set(url, response),
-        };
-      },
-      has: async (name: string) => stores.has(name),
-      keys: async () => [...stores.keys()],
-      delete: async (name: string) => stores.delete(name),
-    });
-    localStorage.clear();
+    const stores = stubCacheStorage();
     const signal = new AbortController().signal;
     servedEtag = '"take-v1"';
     recordDecodes([]);
@@ -979,5 +985,25 @@ describe("decodeVideoThumbnail's shared source", () => {
     expect(canvasesAtTimestamps).not.toHaveBeenCalled();
     expect(result.value).toMatchObject({ kind: "filmstrip" });
     expect((result.value as { urls: string[] }).urls).toHaveLength(3);
+  });
+
+  it("checks the file again when a project opens anew, so a replaced video never paints its old frames", async () => {
+    const stores = stubCacheStorage();
+    const signal = new AbortController().signal;
+    servedEtag = '"v1"';
+    recordDecodes([]);
+    const request = { source, sourceStart: 0, sourceRangeDuration: 4, frameCount: 2 };
+    await decodeVideoThumbnail({ ...request, contentVersion: "open-1" }, signal);
+    await vi.waitFor(() => expect([...stores.values()][0]?.size).toBe(4));
+
+    // the video is replaced at the same path, then its project opened again in this page
+    servedEtag = '"v2"';
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("x", { status: 206, headers: { ETag: '"v2"' } })),
+    );
+    await decodeVideoThumbnail({ ...request, contentVersion: "open-2" }, signal);
+
+    expect(input.getPrimaryVideoTrack).toHaveBeenCalledTimes(2);
   });
 });

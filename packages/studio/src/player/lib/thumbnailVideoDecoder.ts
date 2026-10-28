@@ -64,9 +64,12 @@ const sourceInfos = new Map<string, { version: string | undefined; info: SourceI
 const storedVersions = new Map<string, Promise<StoredSource | undefined>>();
 const storedInfos = new Set<string>();
 
-function storedVersionOf(source: string): Promise<StoredSource | undefined> {
-  let pending = storedVersions.get(source);
-  if (!pending) storedVersions.set(source, (pending = storedVersion(source)));
+const openOf = (request: VideoThumbnailDecodeRequest) =>
+  `${request.source}\u0000${request.contentVersion ?? ""}`;
+
+function storedVersionOf(request: VideoThumbnailDecodeRequest): Promise<StoredSource | undefined> {
+  let pending = storedVersions.get(openOf(request));
+  if (!pending) storedVersions.set(openOf(request), (pending = storedVersion(request.source)));
   return pending;
 }
 
@@ -272,7 +275,7 @@ function versionRead(
 ): StoredSource | undefined {
   if (!source.etag) return undefined;
   const version = { source: request.source, etag: source.etag };
-  storedVersions.set(request.source, Promise.resolve(version));
+  storedVersions.set(openOf(request), Promise.resolve(version));
   return version;
 }
 
@@ -312,7 +315,7 @@ export async function decodeVideoThumbnail(
   };
   const entry = sourceInfos.get(request.source);
   try {
-    const stored = await storedVersionOf(request.source);
+    const stored = await storedVersionOf(request);
     const known =
       entry && entry.version === request.contentVersion
         ? entry.info

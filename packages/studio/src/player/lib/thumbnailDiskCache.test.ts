@@ -121,4 +121,38 @@ describe("stored thumbnails", () => {
     expect(await readStoredInfo(v1)).toBeUndefined();
     expect(await storeInfo(v1, { aspect: 1, metadataDuration: 1 })).toBeUndefined();
   });
+
+  it("count a frame stored again under its name once, so the budget holds", async () => {
+    await storeFrame(v1, "cover 1x1 0", 0, jpeg(100));
+    await storeFrame(v1, "cover 1x1 0", 0, jpeg(100));
+
+    await vi.waitFor(() => expect(localStorage.getItem("hf-thumbnails-index")).toContain("bytes"), {
+      timeout: 3000,
+    });
+    const saved = JSON.parse(localStorage.getItem("hf-thumbnails-index")!);
+    expect(Object.values(saved.caches)).toMatchObject([{ bytes: 100 }]);
+  });
+
+  it("keep what another tab stored when saving, but not what this tab dropped", async () => {
+    await rememberVersion(v1);
+    await storeFrame(v1, "cover 1x1 0", 0, jpeg());
+    await vi.waitFor(() => expect(localStorage.getItem("hf-thumbnails-index")).toContain("bytes"), {
+      timeout: 3000,
+    });
+    // another tab saves its snapshot: a source of its own, and v1 as it was before this tab moved on
+    const other = JSON.parse(localStorage.getItem("hf-thumbnails-index")!);
+    other.caches["hf-thumbnails:other:tab"] = { usedAt: Date.now(), bytes: 7 };
+    localStorage.setItem("hf-thumbnails-index", JSON.stringify(other));
+    const v1Cache = Object.keys(other.caches).find((name) => name !== "hf-thumbnails:other:tab")!;
+    await rememberVersion(v2);
+    await storeFrame(v2, "cover 1x1 0", 0, jpeg());
+
+    await vi.waitFor(
+      () => expect(localStorage.getItem("hf-thumbnails-index")).not.toContain(v1Cache),
+      { timeout: 3000 },
+    );
+    const saved = JSON.parse(localStorage.getItem("hf-thumbnails-index")!);
+    expect(Object.keys(saved.caches)).toContain("hf-thumbnails:other:tab");
+    expect(Object.keys(saved.caches)).toHaveLength(2);
+  });
 });

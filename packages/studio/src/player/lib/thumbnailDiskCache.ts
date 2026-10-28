@@ -22,6 +22,8 @@ interface Index {
 }
 
 let index: Index | undefined;
+// caches this tab dropped since its last save, which another tab's older snapshot must not bring back
+const dropped = new Set<string>();
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let warned = false;
 
@@ -49,22 +51,45 @@ async function digest(text: string): Promise<string> {
 const cacheNameOf = async ({ source, etag }: StoredSource) =>
   `${CACHE_PREFIX}${await digest(source)}:${await digest(etag)}`;
 
-function loadIndex(): Index {
-  if (index) return index;
+function savedIndex(): Index | undefined {
   try {
     const saved = JSON.parse(localStorage.getItem(INDEX_KEY) ?? "null") as Index | null;
-    if (saved?.etags && saved.caches) index = saved;
+    return saved?.etags && saved.caches ? saved : undefined;
   } catch {
-    // expected: no storage (a private window) or a value this version can't read starts an empty index
+    return undefined; // expected: no storage (a private window) or a value this version can't read
   }
-  return (index ??= { etags: {}, caches: {} });
+}
+
+function loadIndex(): Index {
+  return (index ??= savedIndex() ?? { etags: {}, caches: {} });
+}
+
+type CacheEntry = Index["caches"][string];
+
+/** Another tab's entry when it was used later than this tab's, with the larger count of bytes. */
+function laterOf(own: CacheEntry | undefined, theirs: CacheEntry): CacheEntry | undefined {
+  if (own && own.usedAt >= theirs.usedAt) return undefined;
+  return { usedAt: theirs.usedAt, bytes: Math.max(theirs.bytes, own?.bytes ?? 0) };
+}
+
+/** This tab's index with what other tabs saved since: each cache at its latest use, none this tab dropped. */
+function mergedIndex(): Index {
+  const mine = loadIndex();
+  const theirs = savedIndex() ?? { etags: {}, caches: {} };
+  for (const [name, entry] of Object.entries(theirs.caches)) {
+    const later = dropped.has(name) ? undefined : laterOf(mine.caches[name], entry);
+    if (later) mine.caches[name] = later;
+  }
+  mine.etags = { ...theirs.etags, ...mine.etags };
+  dropped.clear();
+  return mine;
 }
 
 function saveIndexSoon(): void {
   saveTimer ??= setTimeout(() => {
     saveTimer = undefined;
     try {
-      localStorage.setItem(INDEX_KEY, JSON.stringify(loadIndex()));
+      localStorage.setItem(INDEX_KEY, JSON.stringify(mergedIndex()));
     } catch {
       // expected: storage refused; the caches still hold the frames, only their order of use is lost
     }
@@ -103,6 +128,7 @@ export const rememberVersion = (stored: StoredSource) =>
       if (!name.startsWith(`${CACHE_PREFIX}${key}:`) || name === keep) continue;
       await caches.delete(name);
       delete saved.caches[name];
+      dropped.add(name);
     }
   });
 
@@ -151,9 +177,14 @@ export const readStoredFrame = (stored: StoredSource, frame: string) =>
 export const storeFrame = (stored: StoredSource, frame: string, decodedAt: number, blob: Blob) =>
   quietly(async () => {
     const { name, cache, url } = await entry(stored, `frame?${encodeURIComponent(frame)}`);
-    const headers = { "content-type": blob.type, "x-decoded-at": String(decodedAt) };
+    const replaced = Number((await cache.match(url))?.headers.get("x-bytes")) || 0;
+    const headers = {
+      "content-type": blob.type,
+      "x-decoded-at": String(decodedAt),
+      "x-bytes": String(blob.size),
+    };
     await cache.put(url, new Response(blob, { headers }));
-    used(name, blob.size);
+    used(name, blob.size - replaced);
     await dropLeastUsed(STORED_THUMBNAIL_BYTES);
   });
 
@@ -166,6 +197,7 @@ async function dropLeastUsed(budgetBytes: number): Promise<void> {
     if (total <= budgetBytes) break;
     await caches.delete(name);
     delete saved.caches[name];
+    dropped.add(name);
     total -= bytes;
   }
   saveIndexSoon();
