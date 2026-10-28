@@ -17,6 +17,8 @@ export class MediaFetchError extends Error {
     readonly reader: MediaReader,
     readonly status: number | null,
     readonly code: string | null,
+    /** The byte the failed answer started at: its retry budget is kept per start. */
+    readonly start: number | null = null,
   ) {
     super(describe(reader, status, code, 0));
   }
@@ -68,14 +70,14 @@ function networkCode(error: unknown): string {
   return typeof name === "string" ? name : "unknown";
 }
 
-const typedFailure = (reader: MediaReader, error: unknown) =>
-  isAbort(error) ? error : new MediaFetchError(reader, null, networkCode(error));
+const typedFailure = (reader: MediaReader, error: unknown, start: number) =>
+  isAbort(error) ? error : new MediaFetchError(reader, null, networkCode(error), start);
 
 /** The body, failing a broken read with a MediaFetchError: mediabunny rethrows a body error as-is. */
 function typedBody(
   reader: MediaReader,
   body: ReadableStream<Uint8Array>,
-  onBytes: () => void,
+  start: number,
 ): ReadableStream<Uint8Array> {
   const source = body.getReader();
   return new ReadableStream<Uint8Array>({
@@ -83,14 +85,39 @@ function typedBody(
       try {
         const { done, value } = await source.read();
         if (done) return controller.close();
-        onBytes();
         controller.enqueue(value);
       } catch (error) {
-        controller.error(typedFailure(reader, error));
+        controller.error(typedFailure(reader, error, start));
       }
     },
     cancel: (reason) => source.cancel(reason),
   });
+}
+
+/** The answer to one range request, or the typed failure of it, which carries the start asked for. */
+async function typedFetch(
+  reader: MediaReader,
+  input: RequestInfo | URL,
+  sent: RequestInit,
+  asked: number,
+): Promise<Response> {
+  let response: Response;
+  try {
+    // oxlint-disable-next-line no-restricted-globals -- a media read, on the media's sockets like mediabunny's own
+    response = await fetch(input, sent);
+  } catch (error) {
+    throw typedFailure(reader, error, asked);
+  }
+  if (!response.ok) throw new MediaFetchError(reader, response.status, null, asked);
+  return response;
+}
+
+/** The answer with its body typed; a 200 answers from byte 0, whatever start was asked. */
+function typedResponse(reader: MediaReader, response: Response, asked: number): Response {
+  if (!response.body) return response;
+  const { status, statusText, headers } = response;
+  const body = typedBody(reader, response.body, status === 206 ? asked : 0);
+  return new Response(body, { status, statusText, headers });
 }
 
 /**
@@ -98,7 +125,10 @@ function typedBody(
  * forever and logs a bare `TypeError` each time; these retry twice and fail with a MediaFetchError.
  */
 export function mediaUrlSourceOptions(reader: MediaReader) {
-  let failures = 0;
+  // Failures per start byte: a resume asks for a new start and gets its own budget, while asking for the
+  // same start again (a server that ignores Range, a region that keeps failing) uses it up, whatever else
+  // this reader reads meanwhile. A 200 answers from byte 0, whatever start was asked.
+  const failures = new Map<number | null, number>();
   // Disposing an Input leaves a read stalled mid-body waiting for good; aborting its fetch ends it.
   const reads = new AbortController();
   // Thumbnail ranges are bounded only after this reader read a Content-Range, and never once one was hidden.
@@ -107,29 +137,21 @@ export function mediaUrlSourceOptions(reader: MediaReader) {
     const bounded = ranges === "readable" ? boundedRange(init) : init;
     const signals = [reads.signal, ...(init?.signal ? [init.signal] : [])];
     const sent = { ...bounded, signal: AbortSignal.any(signals) };
-    let response: Response;
-    try {
-      // oxlint-disable-next-line no-restricted-globals -- a media read, on the media's sockets like mediabunny's own
-      response = await fetch(input, sent);
-    } catch (error) {
-      throw typedFailure(reader, error);
-    }
-    if (!response.ok) throw new MediaFetchError(reader, response.status, null);
+    const asked = Number(rangeStart(sent, true) ?? 0);
+    const response = await typedFetch(reader, input, sent, asked);
     if (ranges !== "hidden") ranges = rangesReadable(sent, response) ? "readable" : "hidden";
-    if (!response.body) return response;
-    const { status, statusText, headers } = response;
-    const body = typedBody(reader, response.body, () => (failures = 0));
-    return new Response(body, { status, statusText, headers });
+    return typedResponse(reader, response, asked);
   };
-  // Consecutive failures, so a pooled reader keeps a clip's retries however many clips it served:
-  // bytes arriving forgive the failures before them. mediabunny passes 1 for every failed mid-stream read.
+  // mediabunny passes 1 for every failed mid-stream read, so it counts here instead.
   const getRetryDelay = (_previousAttempts: number, error: unknown): number | null => {
+    const start = error instanceof MediaFetchError ? error.start : null;
+    const failed = failures.get(start) ?? 0;
     const clientError =
       error instanceof MediaFetchError && error.status !== null && error.status < 500;
-    if (error instanceof MediaFetchError) error.setRetries(failures);
-    if (clientError || failures >= MAX_RETRIES) return null;
-    failures++;
-    return 0.5 * failures;
+    if (error instanceof MediaFetchError) error.setRetries(failed);
+    if (clientError || failed >= MAX_RETRIES) return null;
+    failures.set(start, failed + 1);
+    return 0.5 * (failed + 1);
   };
   /** Fails every read this source has in flight. Call it after disposing the Input reading through it. */
   const cancelReads = () => reads.abort(new DOMException("Media reads cancelled", "AbortError"));

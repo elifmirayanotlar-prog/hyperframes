@@ -166,20 +166,82 @@ describe("mediaUrlSourceOptions", () => {
     expect([1, 1, 1].map((attempt) => getRetryDelay(attempt, readError))).toEqual([0.5, 1, null]);
   });
 
-  it("forgives failures once a read succeeds, so a long-lived reader keeps each clip's retries", async () => {
+  // What mediabunny does with a body that breaks: feed the failure to getRetryDelay, then ask again.
+  async function readUntilBroken(
+    fetchFn: ReturnType<typeof mediaUrlSourceOptions>["fetchFn"],
+    range: string,
+  ) {
+    const reader = (await fetchFn(URL_WITH_PATH, { headers: { Range: range } })).body!.getReader();
+    for (;;) await reader.read();
+  }
+
+  it("gives up on a server that ignores Range and breaks at the same byte, whatever it sent first", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response("frame", { status: 206 })),
+      vi.fn(async () => {
+        let sent = false;
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (sent) return controller.error(new TypeError("network error"));
+            sent = true;
+            controller.enqueue(new Uint8Array(64 * 1024));
+          },
+        });
+        return new Response(body, { status: 200 });
+      }),
     );
     const { fetchFn, getRetryDelay } = mediaUrlSourceOptions("thumbnail");
-    const readError = new TypeError("network error");
-    for (let clip = 0; clip < 5; clip++) {
-      expect(getRetryDelay(1, readError)).toBe(0.5);
-      const response = await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=0-" } });
-      await response.body!.getReader().read();
+    const delays: (number | null)[] = [];
+    // A 200 answers from byte 0, so mediabunny resumes at 64 KiB and is sent byte 0 again.
+    for (const range of ["bytes=0-", "bytes=65536-", "bytes=65536-"]) {
+      const failure = await readUntilBroken(fetchFn, range).catch((e: unknown) => e);
+      delays.push(getRetryDelay(1, failure));
     }
 
-    expect([1, 1, 1].map((attempt) => getRetryDelay(attempt, readError))).toEqual([0.5, 1, null]);
+    expect(delays).toEqual([0.5, 1, null]);
+  });
+
+  it("gives up on a region that keeps failing while another region of the same reader streams", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const start = Number(/\d+/.exec(new Headers(init?.headers).get("Range") ?? "")?.[0]);
+        if (start >= 500_000) return new Response("", { status: 503 });
+        const headers = { "Content-Range": `bytes ${start}-999999/1000000` };
+        return new Response(new Uint8Array(1024), { status: 206, headers });
+      }),
+    );
+    const { fetchFn, getRetryDelay } = mediaUrlSourceOptions("thumbnail");
+    const delays: (number | null)[] = [];
+    for (const healthy of [0, 1024, 2048]) {
+      await (
+        await fetchFn(URL_WITH_PATH, { headers: { Range: `bytes=${healthy}-` } })
+      ).arrayBuffer();
+      const failure = await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=600000-" } }).catch(
+        (e: unknown) => e,
+      );
+      delays.push(getRetryDelay(1, failure));
+    }
+
+    expect(delays).toEqual([0.5, 1, null]);
+  });
+
+  it("keeps a budget for each start, so failures on many clips of one reader never add up", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const { fetchFn, getRetryDelay } = mediaUrlSourceOptions("thumbnail");
+    const failAt = async (start: number) =>
+      getRetryDelay(
+        1,
+        await fetchFn(URL_WITH_PATH, { headers: { Range: `bytes=${start}-` } }).catch(
+          (e: unknown) => e,
+        ),
+      );
+    const spread = [];
+    for (const start of [0, 1000, 2000, 3000, 4000]) spread.push(await failAt(start));
+    const repeated = [await failAt(5000), await failAt(5000), await failAt(5000)];
+
+    expect(spread).toEqual([0.5, 0.5, 0.5, 0.5, 0.5]);
+    expect(repeated).toEqual([0.5, 1, null]);
   });
 
   it("does not retry a client error status", () => {
