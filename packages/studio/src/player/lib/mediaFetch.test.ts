@@ -498,6 +498,26 @@ describe("mediaUrlSourceOptions", () => {
     expect(repeated).toEqual([0.5, 1, null]);
   });
 
+  it("forgets a start's failures after a minute, so a long-lived reader meeting it again much later retries", async () => {
+    vi.useFakeTimers({ now: Date.UTC(2026, 9, 28, 9, 0, 0) });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const { fetchFn, getRetryDelay } = mediaUrlSourceOptions("thumbnail");
+    const failAt5000 = async () =>
+      getRetryDelay(
+        1,
+        await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=5000-" } }).catch(
+          (e: unknown) => e,
+        ),
+      );
+    const early = [await failAt5000(), await failAt5000()];
+    vi.setSystemTime(Date.now() + 20 * 60_000);
+    const later = [await failAt5000(), await failAt5000(), await failAt5000()];
+    vi.useRealTimers();
+
+    expect(early).toEqual([0.5, 1]);
+    expect(later).toEqual([0.5, 1, null]);
+  });
+
   it("does not retry a client error status", () => {
     const failure = new MediaFetchError("probe", 404, null);
 
