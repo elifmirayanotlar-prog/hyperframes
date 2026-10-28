@@ -128,7 +128,6 @@ async function skippedPeak(target: AudioTarget, kept: AudioSignal, stream: Audio
   ];
 }
 
-/** Whether the query covers less of the clip than it plays: a slice of a bed can read as a hit or as speech. */
 function coversPart({ window, clip }: AudioTarget): boolean {
   if (!window || !clip) return false;
   return window.from > clip.from || window.from + window.seconds < clip.from + clip.seconds;

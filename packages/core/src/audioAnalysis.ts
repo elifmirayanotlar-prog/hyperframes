@@ -117,7 +117,6 @@ export interface KindFeatures {
   syllables: number;
   /** Share of 50 ms frames within 20 dB of the loud end (95th percentile), 0–1: high for beds and speech, low for hits. */
   sustain: number;
-  /** Share of 40 ms frames with a 70–500 Hz fundamental, 0–1; measured only for audio whose envelope reads as speech. */
   voiced?: number;
 }
 
@@ -591,15 +590,12 @@ export function kindFeatures(signal: AudioSignal): KindFeatures {
   };
 }
 
-/** Speech measured 0.22–0.43; hits, clicks and whooshes 0, so an envelope that only looks like speech is not voice. */
 const VOICED_SPEECH = 0.15;
-/** A 64 s presenter take measured 0.36; music beds 0.09–0.18. */
 const VOICED_STEADY_SPEECH = 0.25;
 
 /**
  * A first guess at what the audio is. Length decides most of it: beds run long, effects short. Long audio is voice
- * when its envelope moves at syllable rate without a beat; short audio is voice when it also holds its level. Either
- * way it must carry a voice-range pitch.
+ * when its envelope moves at syllable rate without a beat; short audio also holds its level. Both need a voice pitch.
  */
 export function classify(signal: AudioSignal): KindGuess {
   const features = kindFeatures(signal);
@@ -611,7 +607,6 @@ export function classify(signal: AudioSignal): KindGuess {
     if (sustain < 0.4) return { value: "sfx", confidence: 0.6, features };
     if (speechLike && pitched())
       return { value: "voice", confidence: round(Math.min(0.9, 0.4 + syllables)), features };
-    // Even-paced speech (a presenter, TTS) moves less at syllable rate; with no beat, a held pitch tells it from a bed.
     if (regularity < 0.2 && syllables >= 0.17 && voiced() >= VOICED_STEADY_SPEECH)
       return { value: "voice", confidence: 0.6, features };
     return { value: "music", confidence: round(Math.min(0.9, 0.5 + regularity)), features };

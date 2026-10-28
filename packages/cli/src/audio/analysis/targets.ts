@@ -23,7 +23,6 @@ export interface AudioTarget {
   placement: Placement | null;
   /** The part of the file to analyze, in file seconds; the whole file when absent. */
   window?: { from: number; seconds: number };
-  /** The part of the file the clip plays, which its kind is judged on however little of it a query covers. */
   clip?: { from: number; seconds: number };
 }
 
