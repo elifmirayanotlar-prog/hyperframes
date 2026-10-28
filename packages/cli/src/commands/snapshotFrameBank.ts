@@ -11,7 +11,7 @@ export interface SeekPlan {
   decodesFrom?: number;
 }
 
-/** A frame whose decode is known: it runs from `decodesFrom`, `-ss seek` drops the rest, and `seek + select` is the cut. */
+/** A frame with its decode known: runs from `decodesFrom`, `-ss seek` drops the rest, `seek + select` is the cut. */
 export interface PlannedFrame extends FrameWant {
   seek: number;
   select: number;
