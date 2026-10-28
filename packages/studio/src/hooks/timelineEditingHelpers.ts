@@ -389,21 +389,19 @@ export function operationChanges(
 
 const RENAMED_MOUNT = /__hf\d+"?\]?$/;
 
-/** The kinds of lookup a target that missed had, never their values, so a log can tell missing clips apart. */
-function missedLookups(
-  element: Pick<TimelineElement, "sourceFile">,
-  target: PatchTarget,
-): string {
+/** The lookups findTagByTarget makes for a target that missed, never their values, so a log can tell causes apart. */
+function missedLookups(element: Pick<TimelineElement, "sourceFile">, target: PatchTarget): string {
+  const selector = target.selector ?? "";
   const kinds = [
     target.hfId && "hf-id",
     target.id && (RENAMED_MOUNT.test(target.id) ? "runtime-renamed id" : "id"),
-    target.selector?.startsWith("[data-composition-id=")
-      ? RENAMED_MOUNT.test(target.selector)
-        ? "runtime-renamed composition id"
-        : "composition id"
-      : target.selector && "class",
+    // A `#id` selector is the id lookup again; only these two forms are looked up on their own.
+    selector.startsWith("[data-composition-id=") &&
+      (RENAMED_MOUNT.test(selector) ? "runtime-renamed composition id" : "composition id"),
+    /^\.[\w-]+$/.test(selector) && "class",
   ].filter(Boolean);
-  return `by ${kinds.join(", ")}; ${element.sourceFile ? "file from the clip" : "no file on the clip"}`;
+  const by = kinds.length > 0 ? kinds.join(", ") : "nothing";
+  return `by ${by}; ${element.sourceFile ? "file from the clip" : "no file on the clip"}`;
 }
 
 /** Patches each change into `source`, failing loudly on a target the file does not hold. */

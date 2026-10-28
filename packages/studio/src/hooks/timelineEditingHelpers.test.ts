@@ -417,20 +417,27 @@ describe("persistTimelineBatchEdit", () => {
 
   it("names which lookups a missing clip had, never their values", async () => {
     stubReadFileContent(SOURCE);
-    const mount = moveMember("ghost", 3, 0, 2);
-    mount.element = {
-      ...mount.element,
-      domId: "intro__hf2",
-      hfId: "hf-zz9q",
-      sourceFile: "compositions/intro.html",
+    // As the timeline builds them: a clip with an id also carries `#id` as its selector.
+    const missing = (element: Partial<TimelineElement>) => {
+      const change = moveMember("ghost", 3, 0, 2);
+      change.element = { ...change.element, ...element };
+      return persistTimelineBatchEdit(batchInput([change], []));
     };
-    await expect(persistTimelineBatchEdit(batchInput([mount], []))).rejects.toThrow(
-      "(by hf-id, runtime-renamed id; file from the clip)",
-    );
-    const plain = moveMember("ghost", 3, 0, 2);
-    await expect(persistTimelineBatchEdit(batchInput([plain], []))).rejects.toThrow(
-      "(by id; no file on the clip)",
-    );
+    await expect(
+      missing({
+        domId: "intro__hf2",
+        hfId: "hf-zz9q",
+        selector: "#intro__hf2",
+        sourceFile: "compositions/intro.html",
+      }),
+    ).rejects.toThrow("(by hf-id, runtime-renamed id; file from the clip)");
+    await expect(missing({ selector: "#ghost" })).rejects.toThrow("(by id; no file on the clip)");
+    await expect(
+      missing({ domId: undefined, selector: ".caption", selectorIndex: 4 }),
+    ).rejects.toThrow("(by class; no file on the clip)");
+    await expect(
+      missing({ domId: undefined, selector: '[data-composition-id="intro__hf2"]' }),
+    ).rejects.toThrow("(by runtime-renamed composition id; no file on the clip)");
   });
 });
 
