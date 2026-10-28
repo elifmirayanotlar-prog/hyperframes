@@ -245,7 +245,7 @@ export function normalizeSystemFontPrimaryFamilies(
 }
 
 /** Surfaces font-family is declared on in served HTML. */
-export type FontFamilySurface = "font-family" | "data-font-family";
+export type FontFamilySurface = "font-family" | "font" | "data-font-family";
 
 export type FontFamilyDeclaration = {
   surface: FontFamilySurface;
@@ -267,8 +267,6 @@ const FONT_SIZE_KEYWORD =
   /^(?:xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|smaller|larger)$/i;
 const FONT_SIZE_TOKEN = /^(?:\d*\.?\d+[a-z%]+|(?:calc|min|max|clamp|var)\(.*\))(?:\/\S+)?$/i;
 
-/** The family list of a `font` shorthand: what follows its `<size>[/<line-height>]`, after any style, variant, weight
- * and stretch. A system-font keyword (`caption`, `menu`) has no size and names no family. */
 function fontShorthandFamilies(value: string): string {
   for (const token of value.matchAll(/(?:[^\s(]|\([^)]*\))+/g)) {
     const size = token[0].split("/")[0] ?? "";
@@ -290,7 +288,7 @@ function* iterateCssRootFontFamilyDeclarations(
     const declaration = prop === "font" ? fontShorthandFamilies(decl.value) : decl.value;
     if (!declaration) return;
     declarations.push({
-      surface: "font-family",
+      surface: prop,
       declaration,
       families: parseFontFamilyValue(declaration),
     });
