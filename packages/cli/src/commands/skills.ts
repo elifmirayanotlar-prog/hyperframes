@@ -21,7 +21,7 @@ import { mirrorGlobalSkills } from "../utils/skillsMirror.js";
 import { invalidateSkillsCache } from "../utils/skillsUpdateCheck.js";
 import { trackSkillsInstallSkipped } from "../telemetry/events.js";
 import type { Example } from "./_examples.js";
-import { jsonFailure } from "../utils/jsonError.js";
+import { failureMessage, jsonFailure } from "../utils/jsonError.js";
 
 export const examples: Example[] = [
   ["Install all HyperFrames skills", "hyperframes skills"],
@@ -725,7 +725,7 @@ const updateCommand = defineCommand({
       const result = await updateSkills({ requested, refreshInstalled: true, strict: true });
       reportUpdate(result, requested, args.json === true);
     } catch (err) {
-      reportUpdateFailure(`Update failed: ${(err as Error).message}`, args.json === true);
+      reportUpdateFailure(`Update failed: ${failureMessage(err)}`, args.json === true);
       setCommandExitCode(1);
       return;
     }

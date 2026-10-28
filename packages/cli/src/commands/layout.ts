@@ -9,7 +9,6 @@ import { c } from "../ui/colors.js";
 import { resolveProject } from "../utils/project.js";
 import { pageNavigationTimeoutMs } from "../utils/renderArgs.js";
 import { gotoWhenSent } from "../capture/navigateForCapture.js";
-import { normalizeErrorMessage } from "../utils/errorMessage.js";
 import { serveStaticProjectHtml } from "../utils/staticProjectServer.js";
 import { printDeprecationNotice, withMeta } from "../utils/updateCheck.js";
 import {
@@ -38,7 +37,7 @@ import {
   waitForRuntimeReady,
   type SeekCompositionTimelineOptions,
 } from "../capture/captureCompositionFrame.js";
-import { jsonFailure } from "../utils/jsonError.js";
+import { failureMessage, jsonFailure } from "../utils/jsonError.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -623,7 +622,7 @@ export function createInspectCommand(commandName: "inspect" | "layout") {
         setCommandExitCode(ok ? 0 : 1);
         return;
       } catch (err) {
-        const message = normalizeErrorMessage(err);
+        const message = failureMessage(err);
         if (args.json) {
           console.log(
             JSON.stringify(

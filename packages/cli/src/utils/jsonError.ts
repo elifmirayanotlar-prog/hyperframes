@@ -1,5 +1,10 @@
 import { format, stripVTControlCharacters } from "node:util";
-import { CliUsageError, type CommandResult } from "./commandResult.js";
+import {
+  CliRuntimeError,
+  CliUsageError,
+  failCommand,
+  type CommandResult,
+} from "./commandResult.js";
 
 export interface CliErrorBody {
   code: string;
@@ -17,6 +22,19 @@ export function jsonFailure(code: string, message: string, hint?: string): JsonF
   return { ok: false, error: hint ? { code, message, hint } : { code, message } };
 }
 
+/** Reports a caught failure as the --json envelope or one line on stderr, then fails the command. */
+export function failCaught(
+  error: unknown,
+  json: boolean,
+  line: (message: string) => string,
+  print: (payload: object) => void = (payload) => console.log(JSON.stringify(payload)),
+): never {
+  const message = failureMessage(error);
+  if (json) print(jsonFailure("runtime_error", message));
+  else console.error(line(message));
+  failCommand();
+}
+
 export function writeJsonFailure(body: CliErrorBody): void {
   process.stdout.write(`${JSON.stringify({ ok: false, error: body })}\n`);
 }
@@ -26,12 +44,41 @@ export function writeJsonFailure(body: CliErrorBody): void {
  * run that printed nothing can still answer with an envelope that says why. Bun's console
  * writes past process.stdout.write, so the console methods are watched too.
  */
+let reported: { message: string; hint?: string } | undefined;
+let noticeDepth = 0;
+
+/** The failure a command reported to the person (errorBox); the envelope's message when it has none. */
+export function recordFailure(message: string, hint?: string): void {
+  reported = { message, hint };
+}
+
+/** Writes a notice (telemetry disclosure, deprecation, progress) that is never an error message. */
+export function asNotice(write: () => void): void {
+  noticeDepth++;
+  try {
+    write();
+  } finally {
+    noticeDepth--;
+  }
+}
+
+// What failCommand() and failUsage() throw once the command has already told the person why.
+const GENERIC_MESSAGES = new Set(["Command failed", "Invalid command usage"]);
+
+/** What went wrong: an error's own message, or for a generic one its cause or reported failure. */
+export function failureMessage(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  if (!GENERIC_MESSAGES.has(error.message)) return error.message;
+  if (error.cause instanceof Error) return failureMessage(error.cause);
+  return reported?.message ?? error.message;
+}
+
 export function watchOutput(): { wroteStdout: () => boolean; stderrText: () => string } {
   let wrote = false;
   let stderr = "";
   let inConsole = false;
   const keep = (text: string) => {
-    stderr = (stderr + text).slice(-4000);
+    if (noticeDepth === 0) stderr = (stderr + text).slice(-4000);
   };
   const stdoutWrite = process.stdout.write.bind(process.stdout);
   const stderrWrite = process.stderr.write.bind(process.stderr);
@@ -75,17 +122,39 @@ export function watchOutput(): { wroteStdout: () => boolean; stderrText: () => s
   };
 }
 
-/** The envelope for a failed run: a usage error speaks for itself, anything else by what it printed. */
+function withHint(body: CliErrorBody, hint: string | undefined): CliErrorBody {
+  return hint ? { ...body, hint: stripVTControlCharacters(hint) } : body;
+}
+
+function errorCode(error: unknown, result: CommandResult): string {
+  if (error instanceof CliUsageError) return error.code;
+  return result.kind === "usage_error" ? "usage_error" : "runtime_error";
+}
+
+/** The error's own words, unless they are the generic text a presented failure carries. */
+function ownMessage(error: unknown): string | undefined {
+  if (!(error instanceof Error) || GENERIC_MESSAGES.has(error.message)) return undefined;
+  const typed = error instanceof CliUsageError || error instanceof CliRuntimeError;
+  return typed || !("result" in error) ? stripVTControlCharacters(error.message) : undefined;
+}
+
+/** The envelope for a failed run: the error's own words, else what the command reported or printed. */
 export function jsonErrorBody(
   error: unknown,
   result: CommandResult,
   stderrText: string,
 ): CliErrorBody {
-  if (error instanceof CliUsageError) {
-    const body = { code: error.code, message: error.message };
-    return error.hint ? { ...body, hint: error.hint } : body;
+  const code = errorCode(error, result);
+  const own = ownMessage(error);
+  if (own)
+    return withHint(
+      { code, message: own },
+      error instanceof CliUsageError ? error.hint : undefined,
+    );
+  if (error instanceof Error && error.cause instanceof Error) {
+    return { code, message: failureMessage(error.cause) };
   }
-  const code = result.kind === "usage_error" ? "usage_error" : "runtime_error";
-  const own = error instanceof Error && !("result" in error) ? error.message : "";
-  return { code, message: stripVTControlCharacters(own) || stderrText || "Command failed" };
+  if (reported)
+    return withHint({ code, message: stripVTControlCharacters(reported.message) }, reported.hint);
+  return { code, message: stderrText || "Command failed" };
 }

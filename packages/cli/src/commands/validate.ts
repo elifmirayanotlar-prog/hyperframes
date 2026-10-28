@@ -25,7 +25,7 @@ import {
   seekCompositionTimeline,
   waitForRuntimeReady,
 } from "../capture/captureCompositionFrame.js";
-import { jsonFailure } from "../utils/jsonError.js";
+import { failureMessage, jsonFailure } from "../utils/jsonError.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -672,7 +672,7 @@ Examples:
       setCommandExitCode(exitCode);
       return;
     } catch (err: unknown) {
-      const message = normalizeErrorMessage(err);
+      const message = failureMessage(err);
       emitFailureReport(message, asJson);
       failCommand();
     }

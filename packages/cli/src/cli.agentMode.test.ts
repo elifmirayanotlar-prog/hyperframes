@@ -224,6 +224,24 @@ describe("agent-mode contract", () => {
     },
   );
 
+  it.each([["lint"], ["check"], ["info"], ["validate"], ["layout"], ["inspect"]])(
+    "%s --json in an empty directory names the real failure, and no notice",
+    async (name) => {
+      const run = await runAsAgent([name, "--json"]);
+      const parsed = JSON.parse(run.stdout) as { ok: boolean; error: { message: string } };
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error.message).toContain("No composition found");
+      expect(parsed.error.message).not.toMatch(/Command failed|deprecated|anonymous usage/);
+    },
+  );
+
+  it("a missing argument under --json is a usage_error with the real message", async () => {
+    const run = await runAsAgent(["capture", "--json"]);
+    expect(run.code).toBe(2);
+    expectJsonFailure(run, "usage_error");
+    expect(JSON.parse(run.stdout).error.message).toContain("Missing URL");
+  });
+
   it("a runtime failure under --json is an envelope that says why, not empty stdout", async () => {
     const run = await runAsAgent(["info", "--json"]);
     expectQuiet(run);

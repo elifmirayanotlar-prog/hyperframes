@@ -30,14 +30,13 @@ import { parseHTML } from "linkedom";
 import type { Example } from "./_examples.js";
 import { c } from "../ui/colors.js";
 import { failCommand } from "../utils/commandResult.js";
-import { normalizeErrorMessage } from "../utils/errorMessage.js";
 import { readOptionalString } from "../utils/pathArgs.js";
 import { projectCompositionFiles } from "../utils/mountedCompositions.js";
 import { readJsonFlag } from "../utils/jsonFlag.js";
 import { resolveProject } from "../utils/project.js";
 import { withMeta } from "../utils/updateCheck.js";
 import { analyzeMediaTreatment } from "./media-treatment-analysis.js";
-import { jsonFailure } from "../utils/jsonError.js";
+import { failureMessage, jsonFailure } from "../utils/jsonError.js";
 
 export function getMediaTreatmentCapabilityOverview() {
   const capabilities = getHfColorGradingCapabilities();
@@ -770,7 +769,7 @@ async function printMutation(args: MediaTreatmentCommandArgs): Promise<void> {
 }
 
 function printFailure(error: unknown, json: boolean): void {
-  const message = normalizeErrorMessage(error);
+  const message = failureMessage(error);
   if (json) console.log(JSON.stringify(withMeta(jsonFailure("runtime_error", message))));
   else console.error(`${c.error("✗")} ${message}`);
   failCommand(1, error);

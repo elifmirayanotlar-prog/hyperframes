@@ -23,8 +23,7 @@ import { CliUsageError, failUsage, setCommandExitCode } from "../../utils/comman
 
 import { readFileSync } from "node:fs";
 import { c } from "../../ui/colors.js";
-import { normalizeErrorMessage } from "../../utils/errorMessage.js";
-import { jsonFailure } from "../../utils/jsonError.js";
+import { failureMessage, jsonFailure } from "../../utils/jsonError.js";
 
 export type PoliciesVerb = "role" | "user" | "validate";
 
@@ -274,7 +273,7 @@ export async function runPolicies(args: PoliciesArgs): Promise<void> {
       try {
         result = validatePolicy(args.inputPath);
       } catch (err) {
-        const msg = normalizeErrorMessage(err);
+        const msg = failureMessage(err);
         if (args.json) {
           console.log(JSON.stringify(jsonFailure("runtime_error", msg), null, 2));
           setCommandExitCode(1);

@@ -2,7 +2,7 @@ import { setCommandExitCode } from "../utils/commandResult.js";
 import { defineCommand } from "../utils/defineCommand.js";
 import type { Example } from "./_examples.js";
 import { c } from "../ui/colors.js";
-import { jsonFailure } from "../utils/jsonError.js";
+import { failureMessage, jsonFailure } from "../utils/jsonError.js";
 
 export const examples: Example[] = [
   ["Lint the current project", "hyperframes lint"],
@@ -99,7 +99,7 @@ export default defineCommand({
       setCommandExitCode(lintResult.totalErrors > 0 ? 1 : 0);
       return;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = failureMessage(err);
       if (args.json) {
         console.log(
           JSON.stringify(

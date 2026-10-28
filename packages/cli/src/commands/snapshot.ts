@@ -97,7 +97,7 @@ import {
   type ReviewSheets,
 } from "./snapshotReview.js";
 import { withMeta } from "../utils/updateCheck.js";
-import { jsonFailure } from "../utils/jsonError.js";
+import { failureMessage, jsonFailure } from "../utils/jsonError.js";
 
 // Runs IN THE BROWSER (serialized into page.evaluate). Tilt the whole stage so
 // the REAL painted pixels are viewed from an orthogonal angle (FINDING [10]:
@@ -1743,7 +1743,7 @@ export default defineCommand({
     } catch (err) {
       // Already reported where it happened (fail() above).
       if (err instanceof CliRuntimeError && err.result.presented) throw err;
-      const msg = normalizeErrorMessage(err);
+      const msg = failureMessage(err);
       if (asJson) console.log(JSON.stringify(withMeta(jsonFailure("runtime_error", msg)), null, 2));
       else console.error(`\n${c.error("✗")} Snapshot failed: ${msg}`);
       failCommand();
