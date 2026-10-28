@@ -57,8 +57,8 @@ function lineSpinner(): SpinnerResult {
     if (message) process.stderr.write(`${stripVTControlCharacters(message)}\n`);
   };
   return {
-    start: () => {},
-    message: () => {},
+    start: say,
+    message: say,
     stop: say,
     cancel: say,
     error: say,
@@ -67,7 +67,7 @@ function lineSpinner(): SpinnerResult {
   };
 }
 
-/** Unattended, only the outcome is written, as one plain line on stderr. */
+/** Unattended, each start, progress and outcome message is written as one plain line on stderr. */
 export function spinner(opts?: SpinnerOptions): SpinnerResult {
   return isUnattended() ? lineSpinner() : clack.spinner(opts);
 }

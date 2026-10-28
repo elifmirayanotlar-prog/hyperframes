@@ -1,4 +1,4 @@
-import { failCommand } from "./commandResult.js";
+import { failCommand, failUsage } from "./commandResult.js";
 /**
  * Shared `--variables` / `--variables-file` / `--strict-variables` parsing
  * and validation helpers used by both `hyperframes render` (in-process) and
@@ -135,6 +135,10 @@ export function resolveVariablesArg(
   if (!result.ok) {
     const { title, message } = variablesErrorMessage(result.error);
     errorBox(title, message);
+    // The flags themselves are wrong (both given, or bad inline JSON); a file that cannot be read
+    // or holds bad JSON is a runtime failure.
+    const { kind } = result.error;
+    if (kind === "conflict" || (inline != null && kind !== "read-error")) failUsage();
     failCommand();
   }
   return result.value;
