@@ -7,9 +7,8 @@ type ChildProcessModule = Record<string, unknown>;
 
 const ENTRY_POINTS = ["spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"];
 
-/** The call's arguments with `windowsHide: true` set unless the caller chose either way. */
+/** The call's arguments with `windowsHide: true` unless the caller chose; a taskkill's stderr is dropped too. */
 function hidden(command: string, rest: unknown[]): unknown[] {
-  // execSync prints a failed command's stderr; taskkill says so when its target already exited.
   const defaults = /^taskkill\s/i.test(command)
     ? { windowsHide: true, stdio: "ignore" }
     : { windowsHide: true };
