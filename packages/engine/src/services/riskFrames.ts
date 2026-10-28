@@ -61,6 +61,12 @@ async function scanChunk(page: Page, times: number[]): Promise<number[]> {
   }, times);
 }
 
+interface ScanOptions {
+  budgetMs?: number;
+  now?: () => number;
+  onProgress?: (scannedFrames: number, totalFrames: number) => void;
+}
+
 /**
  * Frames where a recorded effect element shows. Seeks the page forward, so use a throwaway one.
  * Null once more than `maxFrames` frames qualify, or once the whole scan would take over `budgetMs`.
@@ -70,8 +76,7 @@ export async function scanCssEffectLiveFrames(
   fps: number,
   totalFrames: number,
   maxFrames: number,
-  budgetMs = SCAN_BUDGET_MS,
-  now: () => number = () => performance.now(),
+  { budgetMs = SCAN_BUDGET_MS, now = () => performance.now(), onProgress }: ScanOptions = {},
 ): Promise<Set<number> | null> {
   const live = new Set<number>();
   const started = now();
@@ -80,6 +85,7 @@ export async function scanCssEffectLiveFrames(
     const times: number[] = [];
     for (let f = from; f < to; f++) times.push(quantizeTimeToFrame(f / fps, fps));
     for (const i of await scanChunk(page, times)) live.add(from + i);
+    onProgress?.(to, totalFrames);
     const projectedMs = ((now() - started) / to) * totalFrames;
     if (to < totalFrames && projectedMs > budgetMs) {
       console.error(

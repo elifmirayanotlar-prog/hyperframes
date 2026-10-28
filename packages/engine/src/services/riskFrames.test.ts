@@ -114,8 +114,23 @@ describe("scanCssEffectLiveFrames", () => {
     // 24 ms a frame, what a heavy page costs: 40,219 frames would take 16 minutes.
     const now = () => (clock += 240 * 24);
 
-    expect(await scanCssEffectLiveFrames(page, 60, 40_219, 40_219, 60_000, now)).toBeNull();
+    expect(
+      await scanCssEffectLiveFrames(page, 60, 40_219, 40_219, { budgetMs: 60_000, now }),
+    ).toBeNull();
     expect(seeks).toEqual([240]);
+  });
+
+  it("reports the frames scanned after each chunk", async () => {
+    const seen: Array<[number, number]> = [];
+
+    await scanCssEffectLiveFrames(makePage(between(0, 0)), 10, 500, 500, {
+      onProgress: (scanned, total) => seen.push([scanned, total]),
+    });
+    expect(seen).toEqual([
+      [240, 500],
+      [480, 500],
+      [500, 500],
+    ]);
   });
 
   it("scans to the end when the whole scan fits the budget", async () => {
