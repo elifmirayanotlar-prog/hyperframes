@@ -3,6 +3,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeVideoThumbnail, videoThumbnailTimestamps } from "./thumbnailVideoDecoder";
 import { MediaFetchError } from "./mediaFetch";
+import { resolveTimelineViewportBudgets } from "./timelineViewportBudgets";
+import { releaseSharedFrames } from "./thumbnailFrameCache";
 
 const dispose = vi.fn();
 const sourceRetryRules: string[] = [];
@@ -48,12 +50,20 @@ function recordDecodes(decoded: number[][]): void {
 
 const endOf = (start: number, duration: number) => start + Math.max(0, duration - 0.001);
 
+// Keeps no released frame and no idle source, so a release revokes and disposes at once.
+const NOTHING_KEPT = resolveTimelineViewportBudgets({
+  sharedFrameCacheBytes: 0,
+  thumbnailSourceIdleMs: 0,
+});
+
 // Decoded frames are shared per source for the module's life, so each test decodes its own file.
 let sources = 0;
 let source = "";
 
 beforeEach(() => {
   source = `/clip-${++sources}.mp4`;
+  // Released frames outlive their test; evict them so each test counts only its own revokes.
+  releaseSharedFrames([], 0);
   vi.clearAllMocks();
   getKeyPacket.mockImplementation(async () => null);
   vi.spyOn(URL, "createObjectURL")
@@ -96,6 +106,7 @@ describe("decodeVideoThumbnail", () => {
     const result = await decodeVideoThumbnail(
       { source, sourceStart: 2, sourceRangeDuration: 6, frameCount: 2 },
       new AbortController().signal,
+      NOTHING_KEPT,
     );
 
     expect(decoded).toEqual([[2, 5, endOf(2, 6)]]);
@@ -251,10 +262,12 @@ describe("decodeVideoThumbnail", () => {
     const original = await decodeVideoThumbnail(
       { source, contentVersion: "A:1", frameCount: 1 },
       signal,
+      NOTHING_KEPT,
     );
     const other = await decodeVideoThumbnail(
       { source: `${source}?B`, contentVersion: "B:2", frameCount: 1 },
       signal,
+      NOTHING_KEPT,
     );
     input.getPrimaryVideoTrack.mockResolvedValue({
       getDisplayWidth: vi.fn(async () => 1280),
@@ -264,10 +277,12 @@ describe("decodeVideoThumbnail", () => {
     const reopened = await decodeVideoThumbnail(
       { source, contentVersion: "A:3", frameCount: 1 },
       signal,
+      NOTHING_KEPT,
     );
     const shared = await decodeVideoThumbnail(
       { source, contentVersion: "A:3", frameCount: 1 },
       signal,
+      NOTHING_KEPT,
     );
     expect(reopened.value).toEqual({ kind: "image", url: "blob:version-3", aspect: 32 / 9 });
     expect(shared.value).toEqual(reopened.value);
@@ -298,11 +313,11 @@ describe("decodeVideoThumbnail", () => {
     });
     const range = { source, sourceStart: 0, sourceRangeDuration: 8 };
     const signal = new AbortController().signal;
-    const decodingTwo = decodeVideoThumbnail({ ...range, frameCount: 2 }, signal);
+    const decodingTwo = decodeVideoThumbnail({ ...range, frameCount: 2 }, signal, NOTHING_KEPT);
     await vi.waitFor(() => expect(canvasesAtTimestamps).toHaveBeenCalledOnce());
     const [two, four] = await Promise.all([
       decodingTwo,
-      decodeVideoThumbnail({ ...range, frameCount: 4 }, signal),
+      decodeVideoThumbnail({ ...range, frameCount: 4 }, signal, NOTHING_KEPT),
     ]);
     // Both decoded the frames at 0 s, 4 s and the end; the second copy of each goes at once.
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(3);
@@ -369,13 +384,60 @@ describe("decodeVideoThumbnail", () => {
     recordDecodes([]);
     const range = { source, sourceStart: 0, sourceRangeDuration: 8 };
     const signal = new AbortController().signal;
-    const four = await decodeVideoThumbnail({ ...range, frameCount: 4 }, signal);
-    const two = await decodeVideoThumbnail({ ...range, frameCount: 2 }, signal);
+    const four = await decodeVideoThumbnail({ ...range, frameCount: 4 }, signal, NOTHING_KEPT);
+    const two = await decodeVideoThumbnail({ ...range, frameCount: 2 }, signal, NOTHING_KEPT);
     four.dispose?.();
     // The three frames the 2-slice strip still shows stay; the other two go.
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
     two.dispose?.();
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(5);
+  });
+
+  it("keeps a strip's frames after it is released, so scrolling back to it decodes nothing", async () => {
+    const decoded: number[][] = [];
+    recordDecodes(decoded);
+    const strip = { source, sourceStart: 0, sourceRangeDuration: 8, frameCount: 2 };
+    const signal = new AbortController().signal;
+    const first = await decodeVideoThumbnail(strip, signal);
+    first.dispose?.();
+    const again = await decodeVideoThumbnail(strip, signal);
+    expect(decoded).toEqual([[0, 4, endOf(0, 8)]]);
+    expect(again.value).toEqual(first.value);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    again.dispose?.();
+  });
+
+  it("revokes released frames oldest first once they pass the byte budget, never a shown one", async () => {
+    let frame = 0;
+    vi.mocked(URL.createObjectURL)
+      .mockReset()
+      .mockImplementation(() => `blob:frame-${++frame}`);
+    recordDecodes([]);
+    // Each test frame is the 5-byte blob "frame": the budget holds one released strip of three.
+    const budgets = resolveTimelineViewportBudgets({ sharedFrameCacheBytes: 15 });
+    const signal = new AbortController().signal;
+    const strip = (file: string) =>
+      decodeVideoThumbnail(
+        { source: `${source}?${file}`, sourceStart: 0, sourceRangeDuration: 8, frameCount: 2 },
+        signal,
+        budgets,
+      );
+    const older = await strip("older");
+    const newer = await strip("newer");
+    const shown = await strip("shown");
+    const sameFrames = await strip("shown");
+    const urls = (result: typeof older) =>
+      result.value.kind === "filmstrip" ? [...result.value.urls] : [];
+    older.dispose?.();
+    for (const url of urls(older)) expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(url);
+    // Its frames are still on screen in `shown`, so they are not released and cannot be evicted.
+    sameFrames.dispose?.();
+    newer.dispose?.();
+    for (const url of urls(older)) expect(URL.revokeObjectURL).toHaveBeenCalledWith(url);
+    for (const url of [...urls(newer), ...urls(shown)]) {
+      expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(url);
+    }
+    shown.dispose?.();
   });
 
   it("reports a failed range fetch as one typed line and rethrows it", async () => {
@@ -397,7 +459,11 @@ describe("decodeVideoThumbnail", () => {
   it("releases input and degrades when the source has no video track", async () => {
     input.getPrimaryVideoTrack.mockResolvedValue(null);
     await expect(
-      decodeVideoThumbnail({ source: "/audio.mp3", frameCount: 1 }, new AbortController().signal),
+      decodeVideoThumbnail(
+        { source: "/audio.mp3", frameCount: 1 },
+        new AbortController().signal,
+        NOTHING_KEPT,
+      ),
     ).rejects.toThrow("no decodable video track");
     expect(dispose).toHaveBeenCalledTimes(1);
   });
@@ -413,7 +479,7 @@ describe("decodeVideoThumbnail", () => {
       }
     });
     await expect(
-      decodeVideoThumbnail({ source, frameCount: 2 }, controller.signal),
+      decodeVideoThumbnail({ source, frameCount: 2 }, controller.signal, NOTHING_KEPT),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
     expect(dispose).toHaveBeenCalledTimes(1);
@@ -433,7 +499,11 @@ describe("decodeVideoThumbnail", () => {
       getDurationFromMetadata,
     });
 
-    const decoding = decodeVideoThumbnail({ source, frameCount: 1 }, controller.signal);
+    const decoding = decodeVideoThumbnail(
+      { source, frameCount: 1 },
+      controller.signal,
+      NOTHING_KEPT,
+    );
     await vi.waitFor(() => expect(getDisplayWidth).toHaveBeenCalledOnce());
     controller.abort();
     resolveWidth(1080);

@@ -5,6 +5,12 @@ import {
   type ThumbnailValue,
 } from "./thumbnailScheduler";
 import { mediaUrlSourceOptions, reportMediaFetchFailure } from "./mediaFetch";
+import {
+  releaseSharedFrames,
+  shareFrame,
+  takeSharedFrame,
+  type HeldFrame,
+} from "./thumbnailFrameCache";
 
 export interface VideoThumbnailDecodeRequest {
   source: string;
@@ -33,57 +39,16 @@ export function videoThumbnailTimestamps(
   return [...edges, safeStart + Math.max(0, safeDuration - LAST_FRAME_INSET_S)];
 }
 
-interface SharedFrame {
-  url: string;
-  decodedAt: number;
-  users: number;
-}
-
-interface HeldFrame {
-  key: string;
-  frame: SharedFrame;
-}
-
 interface FrameWindow {
   sourceStart: number;
   lead: number;
   end: number;
 }
 
-const sharedFrames = new Map<string, SharedFrame[]>();
 const sourceInfos = new Map<string, { version: string | undefined; info: SourceInfo }>();
 
 const accepts = (window: FrameWindow, time: number, decodedAt: number) =>
   decodedAt >= window.sourceStart && time - decodedAt <= (time >= window.end ? 0 : window.lead);
-
-function takeSharedFrame(key: string, time: number, window: FrameWindow): SharedFrame | undefined {
-  const frame = sharedFrames.get(key)?.find((shared) => accepts(window, time, shared.decodedAt));
-  if (frame) frame.users += 1;
-  return frame;
-}
-
-function shareFrame(key: string, decodedAt: number, url: string): SharedFrame {
-  const frames = sharedFrames.get(key) ?? [];
-  const existing = frames.find((shared) => shared.decodedAt === decodedAt);
-  if (existing) {
-    existing.users += 1;
-    URL.revokeObjectURL(url);
-    return existing;
-  }
-  const frame = { url, decodedAt, users: 1 };
-  sharedFrames.set(key, [...frames, frame]);
-  return frame;
-}
-
-function releaseSharedFrames(held: HeldFrame[]): void {
-  for (const { key, frame } of held.splice(0)) {
-    if (--frame.users > 0) continue;
-    const rest = sharedFrames.get(key)?.filter((shared) => shared !== frame) ?? [];
-    if (rest.length > 0) sharedFrames.set(key, rest);
-    else sharedFrames.delete(key);
-    URL.revokeObjectURL(frame.url);
-  }
-}
 
 async function canvasToBlob(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<Blob> {
   if (canvas instanceof HTMLCanvasElement) {
@@ -102,6 +67,7 @@ interface DecodedResources {
   urls: (string | undefined)[];
   held: HeldFrame[];
   canvases: Set<HTMLCanvasElement | OffscreenCanvas>;
+  releasedFrameBytes: number;
 }
 
 interface ThumbnailCanvasSink {
@@ -121,7 +87,7 @@ function throwIfAborted(signal: AbortSignal): void {
 
 function releaseDecodedResources(resources: DecodedResources): void {
   resources.urls.length = 0;
-  releaseSharedFrames(resources.held);
+  releaseSharedFrames(resources.held, resources.releasedFrameBytes);
   for (const canvas of resources.canvases) {
     canvas.width = 0;
     canvas.height = 0;
@@ -182,7 +148,7 @@ function takeDecodedFrames(
   const missing: number[] = [];
   timestamps.forEach((time, slot) => {
     const key = keyOf(time);
-    const frame = takeSharedFrame(key, time, window);
+    const frame = takeSharedFrame(key, (decodedAt) => accepts(window, time, decodedAt));
     if (!frame) return void missing.push(slot);
     resources.urls[slot] = frame.url;
     resources.held.push({ key, frame });
@@ -205,7 +171,7 @@ async function decodeFrames(
     resources.canvases.add(wrapped.canvas);
     const blob = await canvasToBlob(wrapped.canvas);
     throwIfAborted(signal);
-    const frame = shareFrame(target.key, target.decodedAt, URL.createObjectURL(blob));
+    const frame = shareFrame(target.key, target.decodedAt, URL.createObjectURL(blob), blob.size);
     resources.urls[target.slot] = frame.url;
     resources.held.push({ key: target.key, frame });
   }
@@ -247,7 +213,12 @@ export async function decodeVideoThumbnail(
   const fit = request.fit ?? "cover";
   const sourceKey = createThumbnailKey({ source: request.source, version: request.contentVersion });
   const keyOf = (time: number) => `${sourceKey}\u0000${fit}\u0000${time}`;
-  const resources: DecodedResources = { urls: [], held: [], canvases: new Set() };
+  const resources: DecodedResources = {
+    urls: [],
+    held: [],
+    canvases: new Set(),
+    releasedFrameBytes: budgets.sharedFrameCacheBytes,
+  };
   const entry = sourceInfos.get(request.source);
   const known = entry?.version === request.contentVersion ? entry?.info : undefined;
   try {
