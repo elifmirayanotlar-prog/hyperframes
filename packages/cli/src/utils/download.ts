@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { createWriteStream, renameSync, unlinkSync } from "node:fs";
+import { createWriteStream, renameSync, statSync, unlinkSync } from "node:fs";
 import { get as httpsGet } from "node:https";
+import { once } from "node:events";
 import type { ClientRequest, IncomingMessage } from "node:http";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -84,6 +85,14 @@ function getUrl(
   );
 }
 
+function fileSize(path: string): number {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
+}
+
 function byteCount(value: string | undefined): number | null {
   const n = Number(value);
   return value !== undefined && Number.isSafeInteger(n) && n >= 0 ? n : null;
@@ -101,7 +110,7 @@ function contentRange(header: string | undefined): { start: number; total: numbe
 function downloadAttempt(
   url: string,
   tmp: string,
-  state: { received: number },
+  state: { received: number; total: number | null },
   options: DownloadOptions,
 ): Promise<void> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS;
@@ -149,6 +158,7 @@ function downloadAttempt(
           const length = byteCount(res.headers["content-length"]);
           const total = resumed ? (range?.total ?? null) : length;
           state.received = start;
+          state.total = total;
           const meter = measureDownload(options, start, total);
           const file = createWriteStream(tmp, { flags: resumed ? "a" : "w" });
           responsePipelineStarted = true;
@@ -159,8 +169,10 @@ function downloadAttempt(
               meter.complete();
               resolve();
             })
-            .catch((err) => {
-              state.received = meter.received();
+            .catch(async (err) => {
+              // Chunks still buffered in the destroyed file stream never reach disk.
+              if (!file.closed) await once(file, "close").catch(() => {});
+              state.received = fileSize(tmp);
               reject(requestError ?? err);
             });
         });
@@ -192,11 +204,16 @@ export async function downloadFile(
   options: DownloadOptions = {},
 ): Promise<void> {
   const tmp = `${dest}.${process.pid}.${randomUUID()}.tmp`;
-  const state = { received: 0 };
+  const state: { received: number; total: number | null } = { received: 0, total: null };
   for (;;) {
     const before = state.received;
     try {
       await downloadAttempt(url, tmp, state, options);
+      const size = fileSize(tmp);
+      if (state.total !== null && size !== state.total) {
+        state.received = size;
+        throw new Error(`Download incomplete: ${size} of ${state.total} bytes`);
+      }
       renameSync(tmp, dest);
       return;
     } catch (error) {

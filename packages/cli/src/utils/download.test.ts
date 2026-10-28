@@ -284,6 +284,65 @@ describe("stalled downloads", () => {
     expect(readdirSync(dir)).toEqual(["model.onnx"]);
   });
 
+  it("resumes from the bytes on disk when a reset drops chunks the file had not written", async () => {
+    const chunk = 64 * 1024;
+    const content = Buffer.from(Array.from({ length: 64 * chunk }, (_, i) => (i * 7) % 256));
+    const ranges: (string | undefined)[] = [];
+    const dir = mkdtempSync(join(tmpdir(), "hyperframes-download-"));
+    tempDirs.push(dir);
+    const dest = join(dir, "model.onnx");
+    mockGet.mockImplementation(((
+      _url: string,
+      optionsOrCallback: unknown,
+      maybeCallback?: unknown,
+    ) => {
+      const callback = (
+        typeof optionsOrCallback === "function" ? optionsOrCallback : maybeCallback
+      ) as (response: IncomingMessage) => void;
+      const range = (optionsOrCallback as { headers?: { Range?: string } }).headers?.Range;
+      ranges.push(range);
+      const start = range ? Number(/bytes=(\d+)-/.exec(range)?.[1]) : 0;
+      const response = new PassThrough({ highWaterMark: chunk }) as PassThrough & {
+        statusCode: number;
+        headers: Record<string, string>;
+      };
+      response.statusCode = start > 0 ? 206 : 200;
+      response.headers = {
+        "content-length": String(content.length - start),
+        ...(start > 0
+          ? { "content-range": `bytes ${start}-${content.length - 1}/${content.length}` }
+          : {}),
+      };
+      const request = new EventEmitter() as ClientRequest;
+      request.setTimeout = vi.fn().mockReturnValue(request);
+      callback(response as unknown as IncomingMessage);
+      queueMicrotask(() => {
+        if (start > 0) {
+          response.end(content.subarray(start));
+          return;
+        }
+        // A quarter lands on disk; then a burst arrives and the connection resets before the file writes it.
+        const quarter = content.length / 4;
+        for (let at = 0; at < quarter; at += chunk)
+          response.write(content.subarray(at, at + chunk));
+        const written = setInterval(() => {
+          const partial = readdirSync(dir).find((name) => name.endsWith(".tmp"));
+          if (!partial || fs.statSync(join(dir, partial)).size < quarter) return;
+          clearInterval(written);
+          for (let at = quarter; at < 2 * quarter; at += chunk)
+            response.write(content.subarray(at, at + chunk));
+          response.destroy(new Error("socket hang up"));
+        }, 1);
+      });
+      return request;
+    }) as typeof httpsGet);
+
+    await downloadFile("https://example.test/model.onnx", dest, { timeoutMs: 1000 });
+
+    expect(ranges).toHaveLength(2);
+    expect(readFileSync(dest).equals(content)).toBe(true);
+  });
+
   it("keeps a slow download going past the timeout while bytes still arrive", async () => {
     const content = Buffer.alloc(200, 3);
     mockGet.mockImplementation(((_url: string, callback: (response: IncomingMessage) => void) => {
