@@ -147,6 +147,32 @@ describe("mediaUrlSourceOptions", () => {
   });
 });
 
+describe("thumbnail reads", () => {
+  it("bounds an open-ended thumbnail range to 512 KiB, and leaves a probe's and a closed one alone", async () => {
+    const ranges: (string | null)[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        ranges.push(new Headers(init?.headers).get("Range"));
+        return new Response("", { status: 206 });
+      }),
+    );
+    const thumbnail = mediaUrlSourceOptions("thumbnail").fetchFn;
+    await thumbnail(URL_WITH_PATH, { headers: { Range: "bytes=1000-" } });
+    await thumbnail(URL_WITH_PATH, { headers: new Headers({ Range: "bytes=0-99" }) });
+    await mediaUrlSourceOptions("probe").fetchFn(URL_WITH_PATH, {
+      headers: { Range: "bytes=1000-" },
+    });
+
+    expect(ranges).toEqual([`bytes=1000-${1000 + 512 * 1024 - 1}`, "bytes=0-99", "bytes=1000-"]);
+  });
+
+  it("keeps a thumbnail reader's cache at 16 MiB, and a probe's at mediabunny's default", () => {
+    expect(mediaUrlSourceOptions("thumbnail")).toMatchObject({ maxCacheSize: 16 * 1024 * 1024 });
+    expect(mediaUrlSourceOptions("probe")).not.toHaveProperty("maxCacheSize");
+  });
+});
+
 describe("reportMediaFetchFailure", () => {
   it("writes one scrubbed line for a typed failure and nothing for anything else", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

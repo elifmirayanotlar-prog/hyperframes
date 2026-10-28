@@ -28,6 +28,20 @@ export class MediaFetchError extends Error {
 }
 
 const MAX_RETRIES = 2;
+// mediabunny asks for `bytes=N-` and cancels once it has its target, by when a local server has
+// streamed megabytes past it. Bounded, a short answer makes mediabunny ask again from where it stopped.
+const THUMBNAIL_RANGE_BYTES = 512 * 1024;
+// A pooled thumbnail reader outlives its clip (thumbnailSourcePool): a quarter of mediabunny's 64 MiB default.
+const THUMBNAIL_READ_CACHE_BYTES = 16 * 1024 * 1024;
+
+function boundedRange(init: RequestInit | undefined): RequestInit | undefined {
+  const headers = new Headers(init?.headers);
+  const open = /^bytes=(\d+)-$/.exec(headers.get("Range") ?? "");
+  if (!open) return init;
+  const start = Number(open[1]);
+  headers.set("Range", `bytes=${start}-${start + THUMBNAIL_RANGE_BYTES - 1}`);
+  return { ...init, headers };
+}
 
 const isAbort = (error: unknown) => (error as { name?: unknown } | null)?.name === "AbortError";
 
@@ -71,7 +85,7 @@ export function mediaUrlSourceOptions(reader: MediaReader) {
     let response: Response;
     try {
       // oxlint-disable-next-line no-restricted-globals -- a media read, on the media's sockets like mediabunny's own
-      response = await fetch(input, init);
+      response = await fetch(input, reader === "thumbnail" ? boundedRange(init) : init);
     } catch (error) {
       throw typedFailure(reader, error);
     }
@@ -89,7 +103,8 @@ export function mediaUrlSourceOptions(reader: MediaReader) {
     failures++;
     return 0.5 * failures;
   };
-  return { fetchFn, getRetryDelay };
+  if (reader === "probe") return { fetchFn, getRetryDelay };
+  return { fetchFn, getRetryDelay, maxCacheSize: THUMBNAIL_READ_CACHE_BYTES };
 }
 
 export function reportMediaFetchFailure(error: unknown): void {
