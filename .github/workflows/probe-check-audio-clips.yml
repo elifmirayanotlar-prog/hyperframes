@@ -19,10 +19,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        defender: ["off", "on"]
         include:
-          - { name: main, ref: 0e32ee9b56bd0815c0dc23a1c3fbb81aa8c43a87 }
-          - { name: fix, ref: e0776ad8fda7b9fc8baa602bf5b207e5637849a3 }
+          - { name: main, defender: "off", ref: 0e32ee9b56bd0815c0dc23a1c3fbb81aa8c43a87 }
+          - { name: main, defender: "on", ref: 0e32ee9b56bd0815c0dc23a1c3fbb81aa8c43a87 }
+          - { name: fix, defender: "off", ref: e0776ad8fda7b9fc8baa602bf5b207e5637849a3 }
+          - { name: fix, defender: "on", ref: e0776ad8fda7b9fc8baa602bf5b207e5637849a3 }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
