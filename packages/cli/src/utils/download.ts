@@ -185,23 +185,7 @@ function downloadAttempt(
   });
 }
 
-/**
- * Download a file from a URL, following redirects.
- * Uses atomic write (download to .tmp, rename on success) to prevent
- * corrupt partial files from persisting in the cache on interruption.
- *
- * Location headers are resolved against the URL that sent them, because they
- * are frequently relative: a host answering 307 with `/api/resolve-cache/...`
- * is normal, and passing that string back as a request target is not.
- *
- * The timeout is per request, so it re-arms on each hop of a redirect chain
- * rather than budgeting the whole chain. A stalled socket is what it exists to
- * catch, and without it the CLI waits forever.
- *
- * Some networks stop delivering a large file at the same byte count on every
- * connection. When an attempt fails after making progress, the next one asks for
- * the rest with a Range header; it gives up only when an attempt brings nothing.
- */
+/** Some networks drop every connection at the same byte, so a retry resumes from the partial file. */
 export async function downloadFile(
   url: string,
   dest: string,

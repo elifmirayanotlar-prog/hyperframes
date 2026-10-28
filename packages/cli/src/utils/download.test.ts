@@ -284,6 +284,63 @@ describe("stalled downloads", () => {
     expect(readdirSync(dir)).toEqual(["model.onnx"]);
   });
 
+  it("keeps a slow download going past the timeout while bytes still arrive", async () => {
+    const content = Buffer.alloc(200, 3);
+    mockGet.mockImplementation(((_url: string, callback: (response: IncomingMessage) => void) => {
+      const response = new PassThrough() as PassThrough & {
+        statusCode: number;
+        headers: Record<string, string>;
+      };
+      response.statusCode = 200;
+      response.headers = { "content-length": "200" };
+      class FakeRequest extends EventEmitter {
+        private timeout: ReturnType<typeof setTimeout> | undefined;
+        private onTimeout = () => {};
+        private ms = 0;
+        // Like a socket idle timeout: each received chunk re-arms it.
+        setTimeout(ms: number, onTimeout: () => void): this {
+          this.ms = ms;
+          this.onTimeout = onTimeout;
+          this.rearm();
+          return this;
+        }
+        rearm(): void {
+          clearTimeout(this.timeout);
+          this.timeout = setTimeout(this.onTimeout, this.ms);
+        }
+        destroy(error: Error): void {
+          clearTimeout(this.timeout);
+          clearInterval(drip);
+          response.destroy(error);
+          this.emit("error", error);
+        }
+      }
+      const request = new FakeRequest();
+      callback(response as unknown as IncomingMessage);
+      let sent = 0;
+      const drip = setInterval(() => {
+        response.write(content.subarray(sent, sent + 10));
+        sent += 10;
+        request.rearm();
+        if (sent >= content.length) {
+          clearInterval(drip);
+          request.destroy = () => {};
+          response.end();
+        }
+      }, 5);
+      return request as unknown as ClientRequest;
+    }) as typeof httpsGet);
+    const dir = mkdtempSync(join(tmpdir(), "hyperframes-download-"));
+    tempDirs.push(dir);
+    const dest = join(dir, "model.onnx");
+    const started = Date.now();
+
+    await downloadFile("https://example.test/model.onnx", dest, { timeoutMs: 25 });
+
+    expect(Date.now() - started).toBeGreaterThan(25 * 2);
+    expect(readFileSync(dest).equals(content)).toBe(true);
+  });
+
   it("gives up when a retry brings no new bytes", async () => {
     const content = Buffer.alloc(1000, 7);
     const ranges: (string | undefined)[] = [];
