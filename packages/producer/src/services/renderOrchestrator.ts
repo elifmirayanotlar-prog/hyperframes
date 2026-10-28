@@ -2213,11 +2213,8 @@ export function resolveDeShortBand(args: {
   return args.bandOpen ? "applied" : "skipped_elements";
 }
 
-/**
- * Frame floor for the single-worker drawElement inversion; 0 (the default) turns it off.
- * Off because it lost wherever it fired: parallel screenshot capture was ~25% faster on
- * Macs and Windows. HF_DE_SINGLE_MIN_FRAMES=<n> turns it back on.
- */
+/** Single-worker drawElement inversion floor; off (0) by default: parallel screenshot capture was
+ * ~25% faster wherever it fired. HF_DE_SINGLE_MIN_FRAMES=<n> turns it back on. */
 export function resolveDeSingleMinFrames(env: NodeJS.ProcessEnv): number {
   const raw = env.HF_DE_SINGLE_MIN_FRAMES;
   const value = raw === undefined || raw.trim() === "" ? 0 : Number(raw);
