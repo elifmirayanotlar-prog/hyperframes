@@ -113,6 +113,22 @@ describe("mediaUrlSourceOptions", () => {
     expect([1, 1, 1].map((attempt) => getRetryDelay(attempt, readError))).toEqual([0.5, 1, null]);
   });
 
+  it("forgives failures once a read succeeds, so a long-lived reader keeps each clip's retries", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("frame", { status: 206 })),
+    );
+    const { fetchFn, getRetryDelay } = mediaUrlSourceOptions("thumbnail");
+    const readError = new TypeError("network error");
+    for (let clip = 0; clip < 5; clip++) {
+      expect(getRetryDelay(1, readError)).toBe(0.5);
+      const response = await fetchFn(URL_WITH_PATH, { headers: { Range: "bytes=0-" } });
+      await response.body!.getReader().read();
+    }
+
+    expect([1, 1, 1].map((attempt) => getRetryDelay(attempt, readError))).toEqual([0.5, 1, null]);
+  });
+
   it("does not retry a client error status", () => {
     const failure = new MediaFetchError("probe", 404, null);
 

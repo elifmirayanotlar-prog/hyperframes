@@ -75,14 +75,16 @@ const typedFailure = (reader: MediaReader, error: unknown) =>
 function typedBody(
   reader: MediaReader,
   body: ReadableStream<Uint8Array>,
+  onBytes: () => void,
 ): ReadableStream<Uint8Array> {
   const source = body.getReader();
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const { done, value } = await source.read();
-        if (done) controller.close();
-        else controller.enqueue(value);
+        if (done) return controller.close();
+        onBytes();
+        controller.enqueue(value);
       } catch (error) {
         controller.error(typedFailure(reader, error));
       }
@@ -112,9 +114,11 @@ export function mediaUrlSourceOptions(reader: MediaReader) {
     if (ranges !== "hidden") ranges = rangesReadable(sent, response) ? "readable" : "hidden";
     if (!response.body) return response;
     const { status, statusText, headers } = response;
-    return new Response(typedBody(reader, response.body), { status, statusText, headers });
+    const body = typedBody(reader, response.body, () => (failures = 0));
+    return new Response(body, { status, statusText, headers });
   };
-  // Counted per source: mediabunny passes 1 for every failed mid-stream read.
+  // Consecutive failures, so a pooled reader keeps a clip's retries however many clips it served:
+  // bytes arriving forgive the failures before them. mediabunny passes 1 for every failed mid-stream read.
   const getRetryDelay = (_previousAttempts: number, error: unknown): number | null => {
     const clientError =
       error instanceof MediaFetchError && error.status !== null && error.status < 500;
