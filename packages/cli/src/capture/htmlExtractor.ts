@@ -128,8 +128,8 @@ export async function extractHtml(
   const unconverted = (await page.evaluate(`(async () => {
     var imgs = Array.from(document.querySelectorAll("img"));
     var deadline = Date.now() + ${inlineBudgetMs};
+    var kept = 0;
     for (var i = 0; i < imgs.length; i++) {
-      if (Date.now() >= deadline) return imgs.length - i;
       var img = imgs[i];
       try {
         if (!img.src || img.src.startsWith("data:")) continue;
@@ -137,6 +137,10 @@ export async function extractHtml(
         // Only convert cross-origin images (same-origin ones will load fine)
         var imgUrl = new URL(img.src);
         if (imgUrl.origin === location.origin) continue;
+        if (Date.now() >= deadline) {
+          kept++;
+          continue;
+        }
         // Try to draw to canvas — will fail if CORS blocks it
         var canvas = document.createElement("canvas");
         canvas.width = img.naturalWidth;
@@ -166,10 +170,11 @@ export async function extractHtml(
           }
         } catch(e2) {
           // Both methods failed — image stays as original URL
+          if (Date.now() >= deadline) kept++;
         }
       }
     }
-    return 0;
+    return kept;
   })()`)) as number;
   if (unconverted > 0) {
     opts.onWarning?.(

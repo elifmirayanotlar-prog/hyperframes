@@ -217,7 +217,9 @@ it("stops inlining images when a CDN never answers and says how many kept their 
     setAttribute: () => {},
     removeAttribute: () => {},
   });
-  const imgs = [img(1), img(2), img(3)];
+  const sameOrigin = { ...img(4), src: "https://brand.example/4.png" };
+  const tiny = { ...img(5), naturalWidth: 4 };
+  const imgs = [img(1), sameOrigin, img(2), tiny, img(3)];
   // A fetch that only ends when its abort signal fires, like a CDN that holds the socket open.
   const hungFetch = (_url: string, init: { signal?: AbortSignal }) =>
     new Promise((_resolve, reject) => {
@@ -254,7 +256,8 @@ it("stops inlining images when a CDN never answers and says how many kept their 
     inlineBudgetMs: 100,
     onWarning: (message) => warnings.push(message),
   });
-  expect(warnings).toEqual(["2 image(s) kept their original URLs: inlining stopped after 100ms"]);
+  // The one cut off mid-fetch and the two after it; never the same-origin or tiny ones it would not inline.
+  expect(warnings).toEqual(["3 image(s) kept their original URLs: inlining stopped after 100ms"]);
 }, 10_000);
 
 it("fetches Node stylesheets through validated redirects and refuses metadata redirects", async () => {

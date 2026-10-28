@@ -7,6 +7,7 @@ import { CAPTURE_PHASE_SCHEMA } from "./types.js";
 import type { CaptureOptions, CaptureResult } from "./types.js";
 import { captureBrowserArgs } from "./browserLaunchArgs.js";
 import { NavigationDeadlineError } from "./captureErrors.js";
+import type { CaptureWatchdog } from "./captureWatchdog.js";
 
 const { captureWebsiteAttemptMock } = vi.hoisted(() => ({
   captureWebsiteAttemptMock: vi.fn(),
@@ -99,7 +100,12 @@ describe("capture navigation retry launch", () => {
     vi.useFakeTimers();
     try {
       const outputDir = mkdtempSync(join(tmpdir(), "hf-capture-deadline-"));
-      captureWebsiteAttemptMock.mockReturnValueOnce(new Promise(() => {}));
+      captureWebsiteAttemptMock.mockImplementationOnce(
+        (_opts, _progress, _webgl, watchdog: CaptureWatchdog) => {
+          watchdog.registerBrowser({ close: async () => {} });
+          return new Promise(() => {});
+        },
+      );
       const { captureWebsite } = await import("./index.js");
       let settled: CaptureResult | undefined;
       void captureWebsite({ url: "https://example.com", outputDir }).then((result) => {

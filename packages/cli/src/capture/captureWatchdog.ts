@@ -42,24 +42,26 @@ export function createCaptureWatchdog(
     resolveDeadline = resolve;
   });
 
-  const timer = setTimeout(() => {
+  let deadlineFromFirstBrowser: ReturnType<typeof setTimeout> | undefined;
+  const expire = () => {
     didExpire = true;
     resolveDeadline();
     void browser?.close().catch(() => undefined);
-  }, deadlineMs);
+  };
 
   return {
     expired: () => didExpire,
     promise,
     registerBrowser: (nextBrowser) => {
       browser = nextBrowser;
+      deadlineFromFirstBrowser ??= setTimeout(expire, deadlineMs);
       if (didExpire) void browser.close().catch(() => undefined);
     },
     unregisterBrowser: (closedBrowser) => {
       if (browser === closedBrowser) browser = undefined;
     },
     dispose: () => {
-      clearTimeout(timer);
+      clearTimeout(deadlineFromFirstBrowser);
     },
   };
 }
