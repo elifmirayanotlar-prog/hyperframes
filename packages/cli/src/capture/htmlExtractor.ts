@@ -11,14 +11,21 @@ import { safeFetch } from "./assetDownloader.js";
 import { CAPTURE_USER_AGENT } from "./userAgent.js";
 
 const DEFAULT_SETTLE_TIME = 3000;
+// Best-effort inlining: a page with hundreds of slow images or sheets must not hold the capture.
+const DEFAULT_INLINE_BUDGET_MS = 20_000;
 
 // Pre-existing capture pipeline size — surfaced by a one-line escape fix, not new logic.
 // fallow-ignore-next-line complexity
 export async function extractHtml(
   page: Pick<Page, "evaluate" | "url">,
-  opts: { settleTime?: number } = {},
+  opts: {
+    settleTime?: number;
+    inlineBudgetMs?: number;
+    onWarning?: (message: string) => void;
+  } = {},
 ): Promise<ExtractedHtml> {
   const settleTime = opts.settleTime ?? DEFAULT_SETTLE_TIME;
+  const inlineBudgetMs = opts.inlineBudgetMs ?? DEFAULT_INLINE_BUDGET_MS;
 
   // Lazy-load scroll removed — index.ts already scrolls before calling extractHtml.
   // Images are loaded by the time we get here.
@@ -31,7 +38,14 @@ export async function extractHtml(
     return Array.from(document.querySelectorAll('link[rel="stylesheet"][href]')).map(function(l) { return l.href; });
   })()`)) as string[];
 
-  for (const href of stylesheetUrls) {
+  const sheetsDeadline = Date.now() + inlineBudgetMs;
+  for (const [index, href] of stylesheetUrls.entries()) {
+    if (Date.now() >= sheetsDeadline) {
+      opts.onWarning?.(
+        `${stylesheetUrls.length - index} stylesheet(s) stayed linked: inlining stopped after ${inlineBudgetMs}ms`,
+      );
+      break;
+    }
     try {
       const res = await safeFetch(href, {
         signal: AbortSignal.timeout(10000),
@@ -111,9 +125,11 @@ export async function extractHtml(
   // Step 3b: Convert cross-origin images to data URLs
   // Some CDNs (Contentful, etc.) block direct access but images are already
   // loaded in the browser. We convert loaded images to data URLs via canvas.
-  await page.evaluate(`(async () => {
+  const unconverted = (await page.evaluate(`(async () => {
     var imgs = Array.from(document.querySelectorAll("img"));
+    var deadline = Date.now() + ${inlineBudgetMs};
     for (var i = 0; i < imgs.length; i++) {
+      if (Date.now() >= deadline) return imgs.length - i;
       var img = imgs[i];
       try {
         if (!img.src || img.src.startsWith("data:")) continue;
@@ -135,7 +151,7 @@ export async function extractHtml(
       } catch(e) {
         // Canvas CORS failed — try fetch + blob as fallback
         try {
-          var resp = await fetch(img.src, { mode: "cors" });
+          var resp = await fetch(img.src, { mode: "cors", signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
           if (resp.ok) {
             var blob = await resp.blob();
             var reader = new FileReader();
@@ -153,7 +169,13 @@ export async function extractHtml(
         }
       }
     }
-  })()`);
+    return 0;
+  })()`)) as number;
+  if (unconverted > 0) {
+    opts.onWarning?.(
+      `${unconverted} image(s) kept their original URLs: inlining stopped after ${inlineBudgetMs}ms`,
+    );
+  }
 
   // Step 4: Extract everything
   const result = (await page.evaluate(`(() => {
