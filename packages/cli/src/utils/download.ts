@@ -18,6 +18,7 @@ import { Transform } from "node:stream";
 import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
+import { randomUUID } from "node:crypto";
 
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 30_000;
 const LOCK_POLL_MS = 500;
@@ -30,6 +31,8 @@ export interface DownloadOptions {
   onProgress?: (receivedBytes: number, totalBytes: number | null) => void;
   /** Aborting it destroys the request and removes the partial file. */
   signal?: AbortSignal;
+  /** Checks the finished file before it replaces `dest`; a throw discards it. */
+  verify?: (path: string) => Promise<void>;
 }
 
 /** Every redirect a host may reasonably answer with, not just the two we saw first. */
@@ -264,28 +267,43 @@ function processAlive(pid: number): boolean {
   }
 }
 
-function lockHolder(lock: string): number {
+// A lock names `<pid> <token>`; a token not held here means a past run that had this process's pid.
+const heldLocks = new Set<string>();
+
+function readLock(lock: string): string {
   try {
-    return Number(readFileSync(lock, "utf8"));
+    return readFileSync(lock, "utf8");
   } catch {
-    return 0;
+    return "";
   }
 }
 
-/** Holds `dest`'s download, waiting while another live process downloads it; true if it had to wait. */
-async function acquireLock(lock: string, signal: AbortSignal | undefined): Promise<boolean> {
+function lockIsStale(owner: string): boolean {
+  const pid = Number(owner.split(" ")[0]);
+  if (!(pid > 0)) return false;
+  return pid === process.pid ? !heldLocks.has(owner) : !processAlive(pid);
+}
+
+/** Holds `dest`'s download, waiting while another live process downloads it; returns the owner and whether it waited. */
+async function acquireLock(
+  lock: string,
+  signal: AbortSignal | undefined,
+): Promise<{ owner: string; waited: boolean }> {
+  const owner = `${process.pid} ${randomUUID()}`;
   let waited = false;
   for (;;) {
     try {
       const fd = openSync(lock, "wx");
-      writeSync(fd, String(process.pid));
+      writeSync(fd, owner);
       closeSync(fd);
-      return waited;
+      heldLocks.add(owner);
+      return { owner, waited };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
-    const holder = lockHolder(lock);
-    if (holder > 0 && !processAlive(holder)) {
+    const seen = readLock(lock);
+    // Re-read before removing, so a waiter never removes the lock another waiter just took over.
+    if (lockIsStale(seen) && readLock(lock) === seen) {
       removePartialFile(lock);
       continue;
     }
@@ -362,11 +380,20 @@ function openPart(url: string, dest: string): DownloadState {
   };
 }
 
-function finishPart(part: string, dest: string, state: DownloadState): void {
+function assertComplete(part: string, state: DownloadState): void {
   const size = fileSize(part);
   if (state.total !== null && size !== state.total) {
     state.received = size;
     throw new Error(`Download incomplete: ${size} of ${state.total} bytes`);
+  }
+}
+
+async function publishPart(part: string, dest: string, options: DownloadOptions): Promise<void> {
+  try {
+    await options.verify?.(part);
+  } catch (error) {
+    discardPart(part);
+    throw error;
   }
   renameSync(part, dest);
   removePartialFile(`${part}.json`);
@@ -379,7 +406,8 @@ async function downloadToPart(url: string, dest: string, options: DownloadOption
     const before = state.received;
     try {
       await downloadAttempt(url, part, state, options);
-      return finishPart(part, dest, state);
+      assertComplete(part, state);
+      break;
     } catch (error) {
       const step = afterFailure(error, {
         aborted: options.signal?.aborted === true,
@@ -394,6 +422,7 @@ async function downloadToPart(url: string, dest: string, options: DownloadOption
       state.etag = null;
     }
   }
+  await publishPart(part, dest, options);
 }
 
 /**
@@ -406,10 +435,11 @@ export async function downloadFile(
   options: DownloadOptions = {},
 ): Promise<void> {
   const lock = `${dest}.lock`;
-  const waited = await acquireLock(lock, options.signal);
+  const { owner, waited } = await acquireLock(lock, options.signal);
   try {
     if (!(waited && existsSync(dest))) await downloadToPart(url, dest, options);
   } finally {
-    removePartialFile(lock);
+    heldLocks.delete(owner);
+    if (readLock(lock) === owner) removePartialFile(lock);
   }
 }

@@ -675,4 +675,26 @@ describe("resuming across runs", () => {
 
     expect(readdirSync(dir).sort()).toEqual([live, "model.onnx"].sort());
   });
+
+  it("takes over a lock a past run left under this process's pid", async () => {
+    const { dir, dest } = stoppedRun("hel", '"v1"');
+    writeFileSync(`${dest}.lock`, String(process.pid));
+    mockGet.mockImplementation(rangedHost("hello", '"v1"', []));
+
+    await downloadFile(url, dest, { signal: AbortSignal.timeout(2000) });
+
+    expect(readFileSync(dest, "utf8")).toBe("hello");
+    expect(readdirSync(dir)).toEqual(["model.onnx"]);
+  });
+
+  it("discards a finished file its check refuses", async () => {
+    const { dir, dest } = stoppedRun("hel", '"v1"');
+    mockGet.mockImplementation(rangedHost("hello", '"v1"', []));
+
+    await expect(
+      downloadFile(url, dest, { verify: async () => Promise.reject(new Error("bad sha")) }),
+    ).rejects.toThrow("bad sha");
+
+    expect(readdirSync(dir)).toEqual([]);
+  });
 });
