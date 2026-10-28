@@ -157,6 +157,28 @@ describe.skipIf(!ffmpeg)("analyzeTargets", () => {
     expect(hits.filter((t) => Math.abs(t - 2) >= 0.01)).toEqual([]);
   });
 
+  it("judges a clip's kind on all it plays, not on the slice a range query covers", async () => {
+    const bed = (t: number) =>
+      0.3 * Math.sin(2 * Math.PI * 220 * t) + 0.6 * hit(0)(t % 0.5) + 0.05 * noise();
+    const path = wav("music-bed.wav", 12, bed);
+    const target = (clip?: { from: number; seconds: number }) => ({
+      path,
+      file: "music-bed.wav",
+      ref: "#music",
+      kind: "audio" as const,
+      placement: null,
+      window: { from: 3, seconds: 1.7 },
+      ...(clip && { clip }),
+    });
+    const slice = await analyzeTargets([target()], { capabilities: ["kind"] });
+    expect((slice.items[0]!.kind as { value: string }).value).not.toBe("music");
+    const report = await analyzeTargets([target({ from: 0, seconds: 12 })], {
+      capabilities: ["kind", "moments"],
+    });
+    expect((report.items[0]!.kind as { value: string }).value).toBe("music");
+    expect(report.items[0]!.window).toEqual({ from: 3, to: 4.7 });
+  });
+
   it("reports a file it cannot read on that item and goes on to the next", async () => {
     const broken = join(dir, "notes.txt");
     writeFileSync(broken, "not audio");

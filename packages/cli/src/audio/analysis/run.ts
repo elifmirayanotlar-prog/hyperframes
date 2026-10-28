@@ -128,6 +128,40 @@ async function skippedPeak(target: AudioTarget, kept: AudioSignal, stream: Audio
   ];
 }
 
+/** Whether the query covers less of the clip than it plays: a slice of a bed can read as a hit or as speech. */
+function coversPart({ window, clip }: AudioTarget): boolean {
+  if (!window || !clip) return false;
+  return window.from > clip.from || window.from + window.seconds < clip.from + clip.seconds;
+}
+
+async function clipKind(target: AudioTarget, request: AnalyzeOptions, stream: AudioStreamInfo) {
+  const decoded = await decodeAudio(target.path, target.clip!, stream);
+  if (!decoded) return null;
+  return analyzeSignal(decoded.signal, { ...request, capabilities: ["kind"] });
+}
+
+/** Analyzes the window, except a kind the window would misjudge, which comes from the whole clip. */
+async function analyzeWindow(
+  target: AudioTarget,
+  signal: AudioSignal,
+  request: AnalyzeOptions,
+  stream: AudioStreamInfo,
+) {
+  const kindApart = request.capabilities.includes("kind") && coversPart(target);
+  if (!kindApart) return analyzeSignal(signal, request);
+  const analysis = await analyzeSignal(signal, {
+    ...request,
+    capabilities: request.capabilities.filter((capability) => capability !== "kind"),
+  });
+  const kind = await clipKind(target, request, stream);
+  if (!kind) return analysis;
+  return {
+    ...analysis,
+    values: { ...analysis.values, kind: kind.values.kind },
+    provenance: { ...analysis.provenance, ...kind.provenance },
+  };
+}
+
 async function analyzeTarget(
   target: AudioTarget,
   request: AnalyzeOptions,
@@ -141,7 +175,12 @@ async function analyzeTarget(
   const { from, read, context } = decodeSpan(target, stream);
   const decoded = await decodeAudio(target.path, read, stream);
   if (!decoded) return { ...item, error: "no audio stream" };
-  const analysis = await analyzeSignal(decoded.signal, { ...request, fileOffset: from, context });
+  const analysis = await analyzeWindow(
+    target,
+    decoded.signal,
+    { ...request, fileOffset: from, context },
+    stream,
+  );
   return {
     ...item,
     window: { from: round(from), to: round(from + analysis.analyzed) },
