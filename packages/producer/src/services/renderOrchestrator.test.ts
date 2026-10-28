@@ -57,6 +57,7 @@ import {
   shouldClampDefaultDrawElement,
   shouldPreferParallelDrawElement,
   shouldPreferSingleWorkerDrawElement,
+  resolveDeSingleMinFrames,
   isCaptureParallelStreamRouterEnabled,
   shouldSegmentCapture,
   SEGMENTED_MIN_SECONDS_AFTER_SOAK,
@@ -2909,6 +2910,15 @@ describe("shouldPreferSingleWorkerDrawElement (DE priority inversion)", () => {
   it("skips below the amortization threshold (measured crossover ~900 frames)", () => {
     expect(shouldPreferSingleWorkerDrawElement({ ...eligible, totalFrames: 360 })).toBe(false);
     expect(shouldPreferSingleWorkerDrawElement({ ...eligible, totalFrames: 900 })).toBe(true);
+  });
+
+  it("is off unless HF_DE_SINGLE_MIN_FRAMES sets a floor", () => {
+    expect(resolveDeSingleMinFrames({})).toBe(0);
+    expect(resolveDeSingleMinFrames({ HF_DE_SINGLE_MIN_FRAMES: "" })).toBe(0);
+    expect(resolveDeSingleMinFrames({ HF_DE_SINGLE_MIN_FRAMES: "900" })).toBe(900);
+    expect(
+      shouldPreferSingleWorkerDrawElement({ ...eligible, minFrames: resolveDeSingleMinFrames({}) }),
+    ).toBe(false);
   });
 
   it("is disabled by minFrames <= 0 (HF_DE_SINGLE_MIN_FRAMES=0 kill switch)", () => {
