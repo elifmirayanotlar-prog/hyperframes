@@ -10,35 +10,44 @@ const changing = () => reloading || reloadRequested || scriptWrites > 0;
 const noteIdle = () => {
   if (!changing()) givenUp = false;
 };
+// The page mirrors isPreviewChanging(), so a tool that watches the preview from outside waits on the same owner.
+const publish = () => {
+  noteIdle();
+  if (typeof document !== "undefined")
+    document.documentElement.toggleAttribute("data-preview-changing", isPreviewChanging());
+};
 
 export function giveUpOnPreviewChange(): void {
   givenUp = changing();
+  publish();
 }
 
 export function setPreviewReloading(next: boolean): void {
   reloading = next;
   thumbnailScheduler.setPreviewReloading(next);
-  noteIdle();
+  publish();
 }
 
 /** Studio asked for a reload that has not begun yet; `previewReloadBegun` closes that gap. */
 export function requestPreviewReload(): void {
   reloadRequested = true;
+  publish();
 }
 
 export function previewReloadBegun(): void {
   reloadRequested = false;
-  noteIdle();
+  publish();
 }
 
-/** A script write or scene swap counts from its send until its preview update is applied, or it fails. */
+/** A script write, scene swap or history step counts from its send until its preview update is applied, or it fails. */
 export async function whileScriptWrites<T>(write: () => Promise<T>): Promise<T> {
   scriptWrites += 1;
+  publish();
   try {
     return await write();
   } finally {
     scriptWrites -= 1;
-    noteIdle();
+    publish();
   }
 }
 
