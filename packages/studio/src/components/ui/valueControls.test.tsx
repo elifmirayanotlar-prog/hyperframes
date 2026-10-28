@@ -366,6 +366,51 @@ describe("NumberField", () => {
     expect(designInputCalls()).toHaveLength(0);
   });
 
+  it("keeps the bounded text when the parent updates after Enter", async () => {
+    const commits: number[] = [];
+    const onTrack = vi.fn(track("metric"));
+    function Parent() {
+      const [value, setValue] = React.useState(24);
+      return (
+        <>
+          <output>{value}</output>
+          <NumberField
+            label="Size"
+            value={value}
+            max={100}
+            onCommit={(next) => {
+              commits.push(next);
+              queueMicrotask(() => setValue(next));
+            }}
+            onTrack={onTrack}
+          />
+        </>
+      );
+    }
+    const host = render(<Parent />);
+    const input = host.querySelector("input");
+    if (!input) throw new Error("NumberField input missing");
+
+    act(() => input.focus());
+    type(input, "150");
+    fire(input, "keydown", { key: "Enter" });
+    expect(input.value).toBe("100");
+
+    await act(async () => void (await Promise.resolve()));
+
+    expect(host.querySelector("output")?.textContent).toBe("100");
+    expect(host.querySelector("input")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("100");
+
+    fire(input, "keydown", { key: "Enter" });
+    act(() => input.blur());
+    expect(input.value).toBe("100");
+    expect(commits).toEqual([100]);
+    expect(onTrack).toHaveBeenCalledTimes(1);
+    expect(designInputCalls()).toHaveLength(1);
+  });
+
   it("commits a typed number on Enter and keeps the unit", () => {
     const commits: number[] = [];
     const host = render(

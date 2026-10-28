@@ -80,7 +80,15 @@ export function NumberField({
     const next = text === "" ? null : Number(text);
     flushSync(() => commit(next));
     if (input && next !== null && Number.isFinite(next)) {
-      input.value = String(committedRef.current);
+      const committedText = String(committedRef.current);
+      const setNativeValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      if (input.value !== committedText && setNativeValue) {
+        setNativeValue.call(input, committedText);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
     }
   };
 
