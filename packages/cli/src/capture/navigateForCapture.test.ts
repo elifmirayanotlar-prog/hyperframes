@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TimeoutError, type Page } from "puppeteer-core";
 import {
   gotoWhenSent,
+  explainProxyRefusal,
   isNavigationTimeoutError,
   navigateForCapture,
   networkIdleAttemptTimeoutMs,
@@ -463,5 +464,44 @@ describe("settleAcrossNavigation", () => {
     await expect(page.evaluate(read)).rejects.toThrow("boom");
     expect(reads).toHaveBeenCalledTimes(1);
     expect(waitForNetworkIdle).not.toHaveBeenCalled();
+  });
+});
+
+describe("a proxy that refuses the connection", () => {
+  it.each(["net::ERR_TUNNEL_CONNECTION_FAILED", "net::ERR_PROXY_CONNECTION_FAILED"])(
+    "is named as the refuser, with %s kept",
+    async (code) => {
+      const goto = vi.fn().mockRejectedValue(new Error(`${code} at https://shop.example.com/`));
+      const failure = (await navigateForCapture(
+        { goto },
+        "https://shop.example.com/",
+        120_000,
+      ).then(
+        () => undefined,
+        (err: unknown) => err,
+      )) as Error;
+      expect(failure.message).toMatch(
+        /^Your network's proxy refused the connection to shop\.example\.com/,
+      );
+      expect(failure.message).toContain(code);
+      expect(failure.message).toMatch(/another network|VPN|proxy/);
+    },
+  );
+
+  it("is named after a networkidle2 timeout falls back too", async () => {
+    const goto = vi
+      .fn()
+      .mockRejectedValueOnce(new TimeoutError("Navigation timeout of 30000 ms exceeded"))
+      .mockRejectedValueOnce(new Error("net::ERR_TUNNEL_CONNECTION_FAILED at https://a.example/"));
+    await expect(navigateForCapture({ goto }, "https://a.example/", 120_000)).rejects.toThrow(
+      /proxy refused the connection to a\.example/,
+    );
+  });
+
+  it("leaves every other failure as it was", async () => {
+    const name = new Error("net::ERR_NAME_NOT_RESOLVED at https://nope.example/");
+    expect(explainProxyRefusal(name, "https://nope.example/")).toBe(name);
+    const goto = vi.fn().mockRejectedValue(name);
+    await expect(navigateForCapture({ goto }, "https://nope.example/", 120_000)).rejects.toBe(name);
   });
 });

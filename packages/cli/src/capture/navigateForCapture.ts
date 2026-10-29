@@ -9,6 +9,27 @@ export { isNavigationTimeoutError };
 
 export const NETWORK_IDLE_ATTEMPT_MS = 30_000;
 
+/** Chromium's words for a proxy that was in the way: it refused or could not complete the connection to the site. */
+const PROXY_REFUSAL = /net::ERR_(?:TUNNEL_CONNECTION_FAILED|PROXY_CONNECTION_FAILED)/;
+
+/** The error as the person should read it when their network's proxy refused the connection; any other error as is. */
+export function explainProxyRefusal(err: unknown, url: string): unknown {
+  const said = err instanceof Error ? err.message : String(err);
+  const code = PROXY_REFUSAL.exec(said)?.[0];
+  if (!code) return err;
+  let host = url;
+  try {
+    host = new URL(url).host;
+  } catch {
+    // expected: an unparseable address is named as given
+  }
+  return new Error(
+    `Your network's proxy refused the connection to ${host} (${code}). Try another network or turn off the VPN or ` +
+      `proxy for this site, or ask whoever runs the proxy to allow ${host}.`,
+    { cause: err },
+  );
+}
+
 export type CaptureGotoWaitUntil = "networkidle2" | "domcontentloaded";
 
 export interface CaptureGotoOptions {
@@ -50,15 +71,16 @@ export async function navigateForCapture<TResponse>(
     };
   } catch (err) {
     if (!isNavigationTimeoutError(err) || networkIdleTimeoutMs >= totalTimeoutMs) {
-      throw err;
+      throw explainProxyRefusal(err, url);
     }
   }
 
   const fallbackTimeoutMs = totalTimeoutMs - networkIdleTimeoutMs;
-  const response = await page.goto(url, {
-    waitUntil: "domcontentloaded",
-    timeout: fallbackTimeoutMs,
-  });
+  const response = await page
+    .goto(url, { waitUntil: "domcontentloaded", timeout: fallbackTimeoutMs })
+    .catch((err: unknown) => {
+      throw explainProxyRefusal(err, url);
+    });
   return {
     response,
     waitUntil: "domcontentloaded",
