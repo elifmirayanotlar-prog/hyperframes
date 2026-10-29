@@ -58,6 +58,7 @@ export function buildTelemetryJoinKeys(input: {
   anonymousId: string;
   recentRenders?: RecentRenderRecord[];
   lastCheck?: LastCheckRecord;
+  now?: number;
 }): string {
   const parts = [`fid=${input.feedbackId}`, `tid=${input.anonymousId}`];
   if (input.recentRenders?.length) {
@@ -70,6 +71,10 @@ export function buildTelemetryJoinKeys(input: {
     const result =
       input.lastCheck.exitCode === undefined ? "unfinished" : `exit${input.lastCheck.exitCode}`;
     parts.push(`check=${result}${codes.length ? `:${codes.join(",")}` : ""}`);
+    const minutes = Math.round(
+      ((input.now ?? Date.now()) - Date.parse(input.lastCheck.at)) / 60_000,
+    );
+    if (Number.isFinite(minutes) && minutes >= 0) parts.push(`check_age=${minutes}m`);
   }
   return parts.join(" ");
 }

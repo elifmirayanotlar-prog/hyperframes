@@ -40,6 +40,16 @@ describe("buildTelemetryJoinKeys", () => {
     expect(keys).toBe("fid=f tid=t check=unfinished");
   });
 
+  it("says how many minutes ago the last check ran, so one from another project is spotted", () => {
+    const keys = buildTelemetryJoinKeys({
+      feedbackId: "f",
+      anonymousId: "t",
+      lastCheck: { at: "2026-10-29T10:00:00.000Z", exitCode: 1, codes: { text_overlap: 4 } },
+      now: Date.parse("2026-10-29T10:12:30.000Z"),
+    });
+    expect(keys).toBe("fid=f tid=t check=exit1:text_overlap*4 check_age=13m");
+  });
+
   it("says only the exit code when the last check had no error codes", () => {
     const keys = buildTelemetryJoinKeys({
       feedbackId: "f",
