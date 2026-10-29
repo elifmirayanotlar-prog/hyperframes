@@ -203,11 +203,8 @@ function markPlayRequested(el: HTMLMediaElement): void {
   el.addEventListener("error", clear, { once: true });
 }
 
-/**
- * iOS Safari lets an element start with sound only if its first play() ran inside a tap, or
- * the tap is under ~5 s old. Calling play() then pause() on each idle element while the tap is
- * live lets every take start later without one. Call it from the tap's own call stack.
- */
+// iOS lets an element start with sound after the tap's ~5 s only if it was played inside a tap.
+// Play-then-pause each idle element from the tap's own call stack to allow later starts.
 export function primeMediaForLaterStarts(els: Iterable<HTMLMediaElement>): void {
   for (const el of els) {
     if (!el.paused || playRequested.has(el) || isUnplayable(el)) continue;
