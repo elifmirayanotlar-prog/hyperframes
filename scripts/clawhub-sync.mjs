@@ -1,12 +1,19 @@
 #!/usr/bin/env node
-// `clawhub sync` bumps from the registry's `latest` tag, so a version the registry holds but does
-// not list (hidden) blocks the skill for good; the next free patch past it is published instead,
-// then checked live.
+// `clawhub sync` bumps from the registry's `latest` tag, so a version the registry has hidden
+// blocks the skill for good; an acknowledged one is published one patch past, then checked live.
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const TAKEN_VERSION = /Version (\d+)\.(\d+)\.(\d+) already exists/;
-const MAX_PUBLISH_ATTEMPTS = 5;
+// Versions the registry holds but does not list; any other taken version still fails the sync.
+const SKIPPABLE_TAKEN = new Map([
+  ["hyperframes-creative", "1.0.13"],
+  ["hyperframes", "1.0.51"],
+  ["hyperframes-cli", "1.0.73"],
+  ["hyperframes-registry", "1.0.15"],
+  ["media-use", "1.0.87"],
+  ["remotion-to-hyperframes", "1.0.17"],
+]);
 const OWNER_HANDLE = "heygen-com";
 const OWNER = ["--owner", OWNER_HANDLE];
 
@@ -36,32 +43,29 @@ const syncArgs = (provenance, dryRun) =>
     dryRun ? ["--dry-run"] : [],
   );
 
+function versionPastSkippable(slug, message) {
+  const taken = takenVersion(message);
+  if (!taken || SKIPPABLE_TAKEN.get(slug) !== taken.join(".")) return null;
+  const [major, minor, patch] = taken;
+  return `${major}.${minor}.${patch + 1}`;
+}
+
 function republishTaken(run, provenance, { slug, message }) {
-  let taken = takenVersion(message);
-  if (!taken) return `${slug}: ${message}`;
+  const version = versionPastSkippable(slug, message);
+  if (!version) return `${slug}: ${message}`;
   const folder = `skills/${slug}`;
-  for (let attempt = 0; attempt < MAX_PUBLISH_ATTEMPTS; attempt++) {
-    const [major, minor, patch] = taken;
-    const version = `${major}.${minor}.${patch + 1}`;
-    const published = run(
-      ["publish", folder, "--slug", slug, "--version", version, "--source-path", folder].concat(
-        OWNER,
-        provenance,
-      ),
-    );
-    const nextTaken = published.ok ? null : takenVersion(published.message);
-    if (nextTaken) {
-      taken = nextTaken;
-      continue;
-    }
-    if (!published.ok) return `${slug}: ${published.message}`;
-    const latest = latestTag(run, slug);
-    if (latest !== version)
-      return `${slug}: published ${version}, but the registry's latest is ${latest}`;
-    console.log(`${slug}: ${taken.join(".")} is taken, published ${version}`);
-    return null;
-  }
-  return `${slug}: no free version after ${taken.join(".")} in ${MAX_PUBLISH_ATTEMPTS} tries`;
+  const published = run(
+    ["publish", folder, "--slug", slug, "--version", version, "--source-path", folder].concat(
+      OWNER,
+      provenance,
+    ),
+  );
+  if (!published.ok) return `${slug}: ${published.message}`;
+  const latest = latestTag(run, slug);
+  if (latest !== version)
+    return `${slug}: published ${version}, but the registry's latest is ${latest}`;
+  console.log(`${slug}: ${SKIPPABLE_TAKEN.get(slug)} is taken, published ${version}`);
+  return null;
 }
 
 export function syncSkills({ run, provenance, dryRun }) {
