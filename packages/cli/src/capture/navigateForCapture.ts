@@ -9,8 +9,8 @@ export { isNavigationTimeoutError };
 
 export const NETWORK_IDLE_ATTEMPT_MS = 30_000;
 
-/** Chromium's words for a proxy that was in the way, and what each says: the tunnel to the site was refused or could not
- * be made through it, or the proxy itself could not be reached. */
+/** Chromium's words for a proxy in the way: the tunnel to the site was refused or not made, or the proxy itself
+ * could not be reached. */
 const PROXY_FAILURES = {
   "net::ERR_TUNNEL_CONNECTION_FAILED": (host: string) =>
     `Your network's proxy refused the connection to ${host}. Ask whoever runs it to allow ${host}.`,
