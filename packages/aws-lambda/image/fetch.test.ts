@@ -13,7 +13,7 @@ const tarGz = (() => {
   return readFileSync(out);
 })();
 
-async function fetchAfterResets(resets: number) {
+function serve(resets: number) {
   let hits = 0;
   const server = createServer((socket) => {
     socket.once("data", () => {
@@ -24,13 +24,19 @@ async function fetchAfterResets(resets: number) {
       socket.end(tarGz);
     });
   }).listen(0, "127.0.0.1");
-  const { port } = server.address() as { port: number };
+  return {
+    url: `http://127.0.0.1:${(server.address() as { port: number }).port}/pkg.tar.gz`,
+    hits: () => hits,
+    close: () => server.close(),
+  };
+}
+
+/** Runs fetch.sh on one source line served by `servers`: a primary, then an optional mirror. */
+async function fetchFrom(...servers: ReturnType<typeof serve>[]) {
   const dir = mkdtempSync(join(tmpdir(), "fetch-run-"));
   const sum = createHash("sha256").update(tarGz).digest("hex");
-  writeFileSync(
-    join(dir, "sources.txt"),
-    `pkg.tar.gz ${sum} http://127.0.0.1:${port}/pkg.tar.gz\n`,
-  );
+  const urls = servers.map((server) => server.url).join(" ");
+  writeFileSync(join(dir, "sources.txt"), `pkg.tar.gz ${sum} ${urls}\n`);
   const proc = Bun.spawn(
     ["bash", "-c", `set -euo pipefail; source ${import.meta.dir}/fetch.sh; fetch pkg.tar.gz`],
     {
@@ -40,13 +46,21 @@ async function fetchAfterResets(resets: number) {
     },
   );
   const code = await proc.exited;
-  server.close();
-  return { code, hits, extracted: readFileSync(join(dir, "hello.txt"), "utf8") };
+  for (const server of servers) server.close();
+  return {
+    code,
+    hits: servers.map((server) => server.hits()),
+    extracted: readFileSync(join(dir, "hello.txt"), "utf8"),
+  };
 }
 
 describe("ffmpeg image fetch", () => {
   it("retries a reset connection and still checks the sha256", async () => {
-    const r = await fetchAfterResets(2);
-    expect(r).toMatchObject({ code: 0, hits: 3, extracted: "hi" });
+    expect(await fetchFrom(serve(2))).toEqual({ code: 0, hits: [3], extracted: "hi" });
   }, 30_000);
+
+  it("falls back to the mirror when the primary never answers", async () => {
+    const r = await fetchFrom(serve(Infinity), serve(0));
+    expect([r.code, r.hits[1], r.extracted]).toEqual([0, 1, "hi"]);
+  }, 60_000);
 });

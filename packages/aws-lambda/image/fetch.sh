@@ -10,10 +10,14 @@ retry() {
   return 1
 }
 
+download() {
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 20 --max-time 600 -o "$1" "$2"
+}
+
 fetch() {
-  local name=$1 sum url
-  read -r sum url <<<"$(awk -v n="$name" '$1 == n { print $2, $3 }' "$SOURCES")"
-  curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --connect-timeout 20 --max-time 600 -o "$SRC/$name" "$url"
+  local name=$1 sum url mirror
+  read -r sum url mirror <<<"$(awk -v n="$name" '$1 == n { print $2, $3, $4 }' "$SOURCES")"
+  download "$SRC/$name" "$url" || { [ -n "$mirror" ] && download "$SRC/$name" "$mirror"; }
   echo "$sum  $SRC/$name" | sha256sum -c --quiet
   tar -xf "$SRC/$name" -C "$SRC"
 }
