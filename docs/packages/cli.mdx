@@ -2021,7 +2021,9 @@ the `<app>/<version>/<channel>` tag an app that launches the CLI sets, sent as
 Nothing personally identifying is collected until you sign in. When you run
 `hyperframes auth login`, your HeyGen account email — or username, if the
 account has no email — is linked to your usage, and your prior anonymous usage
-is stitched to it. Nothing else personal, and only once you choose to sign in.
+is stitched to it. While you stay signed in on this machine, each event carries
+that identifier as `$user_id`. Nothing else personal, and only once you choose
+to sign in.
 
 Turn it all off with `HYPERFRAMES_NO_TELEMETRY=1` or the command above.
 [Feedback collection](/help#share-feedback) explains the post-render prompt and the

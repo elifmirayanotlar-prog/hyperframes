@@ -12,6 +12,7 @@ import { getSystemMeta } from "./system.js";
 import { canaryEventProperties } from "./canary.js";
 import { enqueue, type EventProperties } from "./transport.js";
 import { telemetryRuntimeOverride } from "./policy.js";
+import { signedInAccountId } from "./account.js";
 
 // ---------------------------------------------------------------------------
 // CLI-facing telemetry policy: opt-out checks, system-metadata enrichment, and
@@ -121,6 +122,8 @@ export function trackEvent(
       // Groups one invocation's events even when the install identity is
       // untrustworthy. Always present, unlike the orchestrator-set run_id.
       invocation_id: getInvocationId(),
+      // The signed-in account; absent while anonymous. See `signedInAccountId`.
+      $user_id: attributedAccountId(distinctId),
       // Canary assignments as `$feature/canary-<name>` — PostHog's native flag
       // property shape, so breakdowns and experiment analysis work on a canary
       // with nothing configured server-side. On EVERY event, not just renders:
@@ -133,6 +136,15 @@ export function trackEvent(
     },
     distinctId,
   );
+}
+
+// A Studio render attributed to another browser's id (a LAN-shared preview) is
+// someone else's usage, so only this install's and the account's own events carry it.
+function attributedAccountId(distinctId: string | undefined): string | undefined {
+  const accountId = signedInAccountId();
+  if (!accountId) return undefined;
+  if (distinctId === undefined || distinctId === accountId) return accountId;
+  return distinctId === readConfig().anonymousId ? accountId : undefined;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 
 // CI exports HYPERFRAMES_NO_TELEMETRY=1 (and users may set DO_NOT_TRACK), which
 // makes shouldTrack() short-circuit — and it caches that decision for the module's
@@ -43,6 +43,13 @@ const canaryProps = vi.fn<() => Record<string, string>>(() => ({
 }));
 vi.mock("./canary.js", () => ({
   canaryEventProperties: () => canaryProps(),
+}));
+
+// The signed-in account is read from the shared credentials file; pin it so
+// these tests never touch disk. Anonymous unless a test signs in.
+const account = vi.hoisted((): { id?: string } => ({}));
+vi.mock("./account.js", () => ({
+  signedInAccountId: () => account.id,
 }));
 
 // Intercept the exit-time child process so flushSync delivery is assertable.
@@ -333,5 +340,63 @@ describe("canary cohort on every event", () => {
     expect(Object.keys(eventProps(fetchMock)).some((k) => k.startsWith("$feature/canary-"))).toBe(
       false,
     );
+  });
+});
+
+describe("signed-in account on every event", () => {
+  beforeEach(async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(""))),
+    );
+    await flush();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
+    account.id = undefined;
+  });
+
+  /** Track one event and return it as delivered: its distinct_id and properties. */
+  async function sendOne(
+    distinctId?: string,
+  ): Promise<{ distinct_id?: string; properties: Record<string, unknown> }> {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response("")));
+    vi.stubGlobal("fetch", fetchMock);
+    trackEvent("cli_command", { command: "render" }, distinctId);
+    await flush();
+    vi.unstubAllGlobals();
+    return firstEvent(fetchMock);
+  }
+
+  function firstEvent(fetchMock: ReturnType<typeof vi.fn>): {
+    distinct_id?: string;
+    properties: Record<string, unknown>;
+  } {
+    const init = fetchMock.mock.calls[0]?.[1] as { body: string } | undefined;
+    if (!init) throw new Error("expected a fetch call to have been made");
+    return JSON.parse(init.body).batch[0];
+  }
+
+  it("stamps $user_id while signed in, keeping the install as distinct_id", async () => {
+    account.id = "alice@example.com";
+    const sent = await sendOne();
+    expect(sent.properties.$user_id).toBe("alice@example.com");
+    expect(sent.distinct_id).toBe("anon-test-123");
+  });
+
+  it("sends no $user_id while anonymous", async () => {
+    expect((await sendOne()).properties).not.toHaveProperty("$user_id");
+  });
+
+  it("stamps events attributed to this install or to the account itself", async () => {
+    account.id = "alice@example.com";
+    expect((await sendOne("anon-test-123")).properties.$user_id).toBe("alice@example.com");
+    expect((await sendOne("alice@example.com")).properties.$user_id).toBe("alice@example.com");
+  });
+
+  it("keeps the account off events attributed to someone else's browser", async () => {
+    account.id = "alice@example.com";
+    expect((await sendOne("lan-browser-456")).properties).not.toHaveProperty("$user_id");
   });
 });
