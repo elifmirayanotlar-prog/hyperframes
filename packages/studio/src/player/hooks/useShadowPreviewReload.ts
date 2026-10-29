@@ -44,6 +44,21 @@ function shadowPlayerReachable(iframe: HTMLIFrameElement | null): boolean {
   }
 }
 
+function shadowPagePhase(iframe: HTMLIFrameElement | null): string {
+  try {
+    const win = iframe?.contentWindow as Record<string, unknown> | null | undefined;
+    const doc = iframe?.contentDocument;
+    if (!win || !doc || doc.URL === "about:blank") return "no-page";
+    if (doc.readyState === "loading") return "page-loading";
+    if (win.__hfStartupError) return "startup-error";
+    if (!win.__hyperframes) return "runtime-not-run";
+    if (!win.__hyperframeRuntimeBootstrapped) return "scripts-waiting";
+    return "no-player";
+  } catch {
+    return "unreadable";
+  }
+}
+
 function isDocumentHidden(): boolean {
   return typeof document !== "undefined" && document.visibilityState === "hidden";
 }
@@ -118,7 +133,9 @@ export function useShadowPreviewReload({
   const failShadow = useCallback(
     (gen: number, cause: string) => {
       if (gen !== shadowGenRef.current) return;
-      const waitingFor = !shadowPlayerReachable(shadowIframeRef.current)
+      const reachable = shadowPlayerReachable(shadowIframeRef.current);
+      const phase = reachable ? null : shadowPagePhase(shadowIframeRef.current);
+      const waitingFor = !reachable
         ? "the page and its runtime to load"
         : pendingCommitRef.current?.gen !== gen
           ? "its timeline to be ready"
@@ -130,8 +147,9 @@ export function useShadowPreviewReload({
       pendingSeekRef.current = null;
       setPreviewSlots(planShadowDiscard);
       setPreviewReloading(false);
-      const message = `The preview did not reload (${cause}). It was still waiting for ${waitingFor}. The previous preview is still showing.`;
-      logReload("shadow-failed", { cause, waitingFor });
+      const got = phase ? ` Its page had got to: ${phase}.` : "";
+      const message = `The preview did not reload (${cause}). It was still waiting for ${waitingFor}.${got} The previous preview is still showing.`;
+      logReload("shadow-failed", { cause, waitingFor, phase });
       const refused = refusedPreviewStatus(cause);
       const pageMissingNow = refused !== null && refused < 500;
       (pageMissingNow ? console.warn : console.error)(`[studio] ${message}`);

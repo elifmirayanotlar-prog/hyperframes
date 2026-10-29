@@ -405,6 +405,27 @@ describe("shadow reload readiness and failure", () => {
     unmount(root);
   });
 
+  it("says how far a shadow's page got when it gives up waiting for the runtime", () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const onPreviewReloadFailed = vi.fn();
+    const { getApi, gen, root } = beginReload({ onPreviewReloadFailed });
+    // Its runtime ran, but the composition's scripts never finished (fonts that never load, say).
+    const waiting = makeFakeIframe({ __hyperframes: {} });
+    Object.defineProperty(waiting, "contentDocument", {
+      value: { URL: "http://127.0.0.1/preview", readyState: "complete" },
+    });
+    act(() => {
+      getApi().setShadowIframeNode(waiting);
+      getApi().onShadowIframeLoad(gen);
+    });
+    act(() => void vi.advanceTimersByTime(FULL_WAIT_MS));
+    expect(onPreviewReloadFailed).toHaveBeenCalledWith(
+      expect.stringContaining("Its page had got to: scripts-waiting."),
+    );
+    unmount(root);
+  });
+
   it("names the timeline when a shadow's runtime runs but never reports a length", () => {
     vi.useFakeTimers();
     vi.spyOn(console, "error").mockImplementation(() => {});
