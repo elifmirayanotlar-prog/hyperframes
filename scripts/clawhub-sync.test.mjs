@@ -79,11 +79,25 @@ describe("ClawHub skill sync", () => {
     ]);
   });
 
-  it("fails rather than skipping further when the next patch is taken too", () => {
-    const clawhub = fakeClawhub({ syncFailed: [creativeTaken], takenVersions: ["1.0.14"] });
+  it("steps past consecutive taken versions to the next free patch", () => {
+    const clawhub = fakeClawhub({
+      syncFailed: [creativeTaken],
+      takenVersions: ["1.0.14", "1.0.15"],
+    });
 
-    assert.deepEqual(sync(clawhub), [`hyperframes-creative: ${TAKEN("1.0.14")}`]);
-    assert.equal(clawhub.calls.filter((args) => args[0] === "publish").length, 1);
+    assert.deepEqual(sync(clawhub), []);
+    const versions = clawhub.calls
+      .filter((args) => args[0] === "publish")
+      .map((args) => args[args.indexOf("--version") + 1]);
+    assert.deepEqual(versions, ["1.0.14", "1.0.15", "1.0.16"]);
+  });
+
+  it("gives up after a bounded number of taken versions", () => {
+    const takenVersions = Array.from({ length: 9 }, (_, i) => `1.0.${14 + i}`);
+    const clawhub = fakeClawhub({ syncFailed: [creativeTaken], takenVersions });
+
+    assert.equal(sync(clawhub).length, 1);
+    assert.equal(clawhub.calls.filter((args) => args[0] === "publish").length, 5);
   });
 
   it("still fails on any other refusal, without retrying it", () => {
@@ -99,19 +113,22 @@ describe("ClawHub skill sync", () => {
     assert.deepEqual(sync(clawhub), ["hyperframes-creative: Rate limited"]);
   });
 
-  it("fails on any taken version other than the one acknowledged, without publishing", () => {
-    const others = [
-      { slug: "figma", message: TAKEN("1.0.17") },
-      { slug: "figma", message: TAKEN("1.0.13") },
-      { slug: "hyperframes-creative", message: TAKEN("1.0.15") },
+  it("steps past a taken version for any skill, not one hard-coded", () => {
+    const failed = [
+      { slug: "hyperframes", message: TAKEN("1.0.51") },
+      { slug: "media-use", message: TAKEN("1.0.87") },
     ];
-    const clawhub = fakeClawhub({ syncFailed: others });
+    const clawhub = fakeClawhub({ syncFailed: failed });
 
+    assert.deepEqual(sync(clawhub), []);
+    const published = clawhub.calls.filter((args) => args[0] === "publish");
     assert.deepEqual(
-      sync(clawhub),
-      others.map(({ slug, message }) => `${slug}: ${message}`),
+      published.map((args) => [args[3], args[args.indexOf("--version") + 1]]),
+      [
+        ["hyperframes", "1.0.52"],
+        ["media-use", "1.0.88"],
+      ],
     );
-    assert.equal(clawhub.calls.filter((args) => args[0] === "publish").length, 0);
   });
 
   it("fails a sync that reports no failed skill or no readable result", () => {
