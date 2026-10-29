@@ -1823,17 +1823,32 @@ describe("syncRuntimeMedia", () => {
     expect(clip.el.muted).toBe(true);
   });
 
-  it("primes idle takes with play then pause so iOS lets them start after the tap", () => {
-    const idle = createMockClip({ start: 20, end: 30 }).el;
-    const sounding = createMockClip({ start: 0, end: 10 }).el;
-    const order: string[] = [];
-    idle.play = vi.fn(() => (order.push("play"), Promise.resolve()));
-    idle.pause = vi.fn(() => void order.push("pause"));
-    Object.defineProperty(sounding, "paused", { value: false });
-    sounding.pause = vi.fn();
-    primeMediaForLaterStarts([idle, sounding]);
-    expect(order).toEqual(["play", "pause"]);
-    expect(sounding.pause).not.toHaveBeenCalled();
+  describe("priming for iOS", () => {
+    const iPhone =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148";
+    afterEach(() => vi.restoreAllMocks());
+
+    it("plays then pauses every idle unmuted take so iOS lets it start after the tap", () => {
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue(iPhone);
+      const idle = createMockClip({ start: 20, end: 30 }).el;
+      const muted = createMockClip({ start: 20, end: 30 }).el;
+      const sounding = createMockClip({ start: 0, end: 10 }).el;
+      const order: string[] = [];
+      idle.play = vi.fn(() => (order.push("play"), Promise.resolve()));
+      idle.pause = vi.fn(() => void order.push("pause"));
+      muted.muted = true;
+      Object.defineProperty(sounding, "paused", { value: false });
+      primeMediaForLaterStarts([idle, muted, sounding]);
+      expect(order).toEqual(["play", "pause"]);
+      expect(muted.play).not.toHaveBeenCalled();
+      expect(sounding.pause).not.toHaveBeenCalled();
+    });
+
+    it("leaves every take parked where no tap is needed", () => {
+      const idle = createMockClip({ start: 20, end: 30 }).el;
+      primeMediaForLaterStarts([idle]);
+      expect(idle.play).not.toHaveBeenCalled();
+    });
   });
 
   it("fires onAutoplayBlocked when play() rejects with NotAllowedError", async () => {

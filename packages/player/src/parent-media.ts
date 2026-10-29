@@ -14,7 +14,7 @@ import { isRealmElement, isRealmHtmlMediaElement } from "./media-element-guards.
 import { isInClipWindow } from "@hyperframes/core/runtime/clip-window";
 import { readClipTiming } from "@hyperframes/core/composition-contract";
 import { readLinkTiming } from "@hyperframes/core/media-link";
-import { mediaElementTime } from "@hyperframes/core/runtime/media-clock";
+import { mediaElementTime, startsSoundOnlyInsideATap } from "@hyperframes/core/runtime/media-clock";
 import {
   MEDIA_SYNC_TOLERANCE_SECONDS,
   forgetSteering,
@@ -221,8 +221,9 @@ export class ParentMediaManager {
 
   /** iOS lets an element start with sound later only if it was played inside a tap; do it for every copy. */
   primeAll(): void {
+    if (!startsSoundOnlyInsideATap()) return;
     for (const m of this._entries) {
-      if (!m.el.paused) continue;
+      if (m.el.muted || !m.el.paused) continue;
       m.el.play().catch(() => {});
       m.el.pause();
     }

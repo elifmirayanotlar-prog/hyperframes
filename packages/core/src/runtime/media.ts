@@ -1,6 +1,6 @@
 import { swallow } from "./diagnostics";
 import { isClipVisibleAt, isInClipWindow } from "./clipWindow";
-import { mediaElementTime } from "./mediaClock";
+import { mediaElementTime, startsSoundOnlyInsideATap } from "./mediaClock";
 import { sameInstant } from "../clipFacts";
 import { interpolateVolumeGain } from "./mediaVolumeEnvelope.js";
 import { elementVolumeLaneGain } from "./audioAutomationVolume.js";
@@ -203,11 +203,12 @@ function markPlayRequested(el: HTMLMediaElement): void {
   el.addEventListener("error", clear, { once: true });
 }
 
-// iOS lets an element start with sound after the tap's ~5 s only if it was played inside a tap.
-// Play-then-pause each idle element from the tap's own call stack to allow later starts.
+// iOS refuses an unmuted start ~5 s after the tap unless that element played inside a tap: play-then-pause
+// each idle unmuted one from the tap's own call stack. Muted clips start freely and stay deferred.
 export function primeMediaForLaterStarts(els: Iterable<HTMLMediaElement>): void {
+  if (!startsSoundOnlyInsideATap()) return;
   for (const el of els) {
-    if (!el.paused || playRequested.has(el) || isUnplayable(el)) continue;
+    if (el.muted || !el.paused || playRequested.has(el) || isUnplayable(el)) continue;
     el.play().catch(() => {});
     el.pause();
   }

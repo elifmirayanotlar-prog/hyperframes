@@ -168,7 +168,11 @@ describe("ParentMediaManager audio-src proxy lifecycle", () => {
 });
 
 describe("ParentMediaManager priming", () => {
-  it("plays then pauses every idle copy so iOS lets it start after the tap", () => {
+  const iPhone =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148";
+  afterEach(() => vi.restoreAllMocks());
+
+  function primed() {
     const mgr = makeManager();
     mgr.setupFromUrl("https://example.test/a.mp3");
     const el = mgr.entries[0].el;
@@ -178,7 +182,16 @@ describe("ParentMediaManager priming", () => {
     const pause = el.pause.bind(el);
     el.pause = () => (calls.push("pause"), pause());
     mgr.primeAll();
-    expect(calls).toEqual(["play", "pause"]);
+    return calls;
+  }
+
+  it("plays then pauses every idle copy so iOS lets it start after the tap", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(iPhone);
+    expect(primed()).toEqual(["play", "pause"]);
+  });
+
+  it("leaves the copies alone where no tap is needed", () => {
+    expect(primed()).toEqual([]);
   });
 });
 
