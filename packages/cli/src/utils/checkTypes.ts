@@ -262,7 +262,7 @@ export interface CheckAuditDriver {
   getCanvas(): Promise<Canvas>;
   findAmbiguousSelectors(selectors: string[]): Promise<AnchoredLayoutIssue[]>;
   seek(time: number, screenshotFollows?: boolean): Promise<void>;
-  /** Settle-free seek for the dense passes: WebGL draws are skipped unless `draws`, which a pass reading canvas pixels needs. */
+  /** Settle-free seek for the dense passes; WebGL draws are skipped unless `draws` (a pass reading canvas pixels). */
   seekGeometry(time: number, options?: { draws?: boolean }): Promise<void>;
   collectLayout(
     time: number,
