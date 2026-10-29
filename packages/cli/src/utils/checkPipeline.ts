@@ -25,6 +25,8 @@ import { readFile } from "node:fs/promises";
 import type { PrelaunchedBrowser } from "../capture/captureCompositionFrame.js";
 import { join, relative } from "node:path";
 import { trackCheckReport, trackCommandFailure } from "../telemetry/events.js";
+import { recordLastCheck } from "../telemetry/config.js";
+import { failureCodes } from "./checkFailureCodes.js";
 import { trackLintRun } from "../telemetry/lintRun.js";
 import { getRunId } from "../telemetry/runId.js";
 import type { ProjectDir } from "./project.js";
@@ -2084,6 +2086,7 @@ function buildReport(
     exitCode: checkExitCode(report),
     runId: getRunId(),
   });
+  recordLastCheck({ exitCode: checkExitCode(report), codes: failureCodes(report) });
   return filterComponentReport(report, options);
 }
 

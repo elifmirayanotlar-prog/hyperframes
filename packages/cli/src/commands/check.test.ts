@@ -12,6 +12,7 @@ vi.mock("../telemetry/events.js", () => ({
 
 import { contrastRatio, parseColorRGBA } from "./contrast-bg.js";
 import { createCheckCommand, parseCheckRange } from "./check.js";
+import { readConfig } from "../telemetry/config.js";
 import { CheckDeadlineError, CheckStoppedError } from "../utils/checkDeadline.js";
 import { trackCommandFailures } from "../utils/command-failure-tracking.js";
 import type { CommandDef } from "citty";
@@ -1587,6 +1588,20 @@ describe("check pipeline", () => {
     const said = log.mock.calls.map((call) => String(call[0])).join("\n");
     expect(said).toContain("Browser validation skipped because of the lint error above");
     expect(said).not.toContain("Browser session never ran");
+  });
+
+  it("remembers the failed check's error codes so a later feedback can name them", async () => {
+    const lint = lintWith(
+      "error",
+      "root_missing_composition_id",
+      "Root needs data-composition-id.",
+    );
+    await runScenario(fakeDriver(), {}, { lint });
+
+    expect(readConfig().lastCheck).toEqual({
+      exitCode: 1,
+      codes: { root_missing_composition_id: 1 },
+    });
   });
 
   it("marks browserSkipped true when the linter itself crashes", async () => {
