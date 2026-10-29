@@ -380,7 +380,6 @@ class FrameExtractError extends Error {}
 
 const lastLine = (text: string) => text.trim().split("\n").at(-1) ?? "";
 
-/** Why FFmpeg failed: its last error line, or for exit 255 with no output, that it was killed (what SIGTERM gives). */
 const ffmpegFailure = (result: { stderr: string; code: number | null }) =>
   lastLine(result.stderr) ||
   (result.code === 255
