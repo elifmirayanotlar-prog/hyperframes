@@ -3935,12 +3935,19 @@ describe("initSandboxRuntimeModular", () => {
     Object.defineProperty(sfx, "currentTime", { value: 0, writable: true, configurable: true });
     Object.defineProperty(sfx, "readyState", { value: 4, configurable: true });
     const startedAt: number[] = [];
+    // The tap primes every idle clip (play then pause, same tick); that is not a start.
+    let primed = false;
     sfx.play = vi.fn(() => {
       startedAt.push(window.__player!.getTime());
       Object.assign(sfx, { paused: false });
+      primed = true;
+      queueMicrotask(() => (primed = false));
       return Promise.resolve();
     });
-    sfx.pause = vi.fn(() => Object.assign(sfx, { paused: true }));
+    sfx.pause = vi.fn(() => {
+      if (primed) startedAt.pop();
+      return Object.assign(sfx, { paused: true });
+    });
     root.appendChild(sfx);
     window.__timelines = { main: createMockTimeline(4) };
     initSandboxRuntimeModular();

@@ -42,6 +42,7 @@ it.each(["video", "audio"])(
     window.__timelines = { main: createMockTimeline(6) };
     initSandboxRuntimeModular();
     window.__player!.play();
+    play.mockClear(); // the tap's play-then-pause priming is not a start
     for (let i = 0; i < 28; i++) step();
     expect(seek).not.toHaveBeenCalled();
     Object.defineProperty(video, "readyState", { value: 4, configurable: true });

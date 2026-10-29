@@ -167,6 +167,21 @@ describe("ParentMediaManager audio-src proxy lifecycle", () => {
   });
 });
 
+describe("ParentMediaManager priming", () => {
+  it("plays then pauses every idle copy so iOS lets it start after the tap", () => {
+    const mgr = makeManager();
+    mgr.setupFromUrl("https://example.test/a.mp3");
+    const el = mgr.entries[0].el;
+    const calls: string[] = [];
+    const play = el.play.bind(el);
+    el.play = () => (calls.push("play"), play());
+    const pause = el.pause.bind(el);
+    el.pause = () => (calls.push("pause"), pause());
+    mgr.primeAll();
+    expect(calls).toEqual(["play", "pause"]);
+  });
+});
+
 describe("ParentMediaManager across documents", () => {
   afterEach(() => document.body.replaceChildren());
 

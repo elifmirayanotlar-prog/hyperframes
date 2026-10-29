@@ -4,6 +4,7 @@ import { mediaElementTime } from "./mediaClock";
 import {
   evictMediaSyncState,
   hasMediaSyncStateForTest,
+  primeMediaForLaterStarts,
   readElementPlaybackRate,
   readElementPlaybackStart,
   refreshRuntimeMediaCache,
@@ -1820,6 +1821,19 @@ describe("syncRuntimeMedia", () => {
     Object.defineProperty(clip.el, "muted", { value: true, writable: true });
     syncRuntimeMedia({ clips: [clip], timeSeconds: 5, playing: true, playbackRate: 1 });
     expect(clip.el.muted).toBe(true);
+  });
+
+  it("primes idle takes with play then pause so iOS lets them start after the tap", () => {
+    const idle = createMockClip({ start: 20, end: 30 }).el;
+    const sounding = createMockClip({ start: 0, end: 10 }).el;
+    const order: string[] = [];
+    idle.play = vi.fn(() => (order.push("play"), Promise.resolve()));
+    idle.pause = vi.fn(() => void order.push("pause"));
+    Object.defineProperty(sounding, "paused", { value: false });
+    sounding.pause = vi.fn();
+    primeMediaForLaterStarts([idle, sounding]);
+    expect(order).toEqual(["play", "pause"]);
+    expect(sounding.pause).not.toHaveBeenCalled();
   });
 
   it("fires onAutoplayBlocked when play() rejects with NotAllowedError", async () => {

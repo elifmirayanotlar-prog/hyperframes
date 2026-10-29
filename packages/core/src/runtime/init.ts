@@ -84,6 +84,7 @@ import {
   MEDIA_SYNC_TOLERANCE_SECONDS,
   isUnplayable,
   mediaSourceTimeAt,
+  primeMediaForLaterStarts,
   readElementPlaybackRate,
   readElementPlaybackStart,
   readElementRateSpec,
@@ -4720,6 +4721,7 @@ export function initSandboxRuntimeModular(): void {
       }
       runAdapters("play");
       syncMediaForCurrentState();
+      primeMediaForLaterStarts(resolveMediaClipIndex().clips.map((clip) => clip.el));
       colorGrading.redraw();
       postState(true);
     },

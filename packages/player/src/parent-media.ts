@@ -219,6 +219,15 @@ export class ParentMediaManager {
     for (const m of this._entries) this._playEntryIfActive(m);
   }
 
+  /** iOS lets an element start with sound later only if it was played inside a tap; do it for every copy. */
+  primeAll(): void {
+    for (const m of this._entries) {
+      if (!m.el.paused) continue;
+      m.el.play().catch(() => {});
+      m.el.pause();
+    }
+  }
+
   pauseAll(): void {
     for (const m of this._entries) m.el.pause();
   }
