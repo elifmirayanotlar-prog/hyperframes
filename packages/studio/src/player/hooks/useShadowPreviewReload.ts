@@ -45,9 +45,9 @@ function shadowPlayerReachable(iframe: HTMLIFrameElement | null): boolean {
 }
 
 function shadowPagePhase(iframe: HTMLIFrameElement | null): string {
-  const win = iframe?.contentWindow as Record<string, unknown> | null | undefined;
   const doc = iframe?.contentDocument;
-  if (!win || !doc || doc.URL === "about:blank") return "no-page";
+  if (!doc || doc.URL === "about:blank") return "no-page";
+  const win = iframe!.contentWindow as unknown as Record<string, unknown>;
   if (doc.readyState === "loading") return "page-loading";
   if (win.__hfStartupError) return "startup-error";
   if (!win.__hyperframes) return "runtime-not-run";
