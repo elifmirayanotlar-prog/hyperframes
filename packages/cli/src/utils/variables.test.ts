@@ -85,6 +85,22 @@ describe("parseVariablesArg", () => {
     expect(err.path).toBe("missing.json");
     expect(err.cause).toMatch(/ENOENT/);
   });
+
+  it("reads --variables-file from disk when no reader is passed", async () => {
+    const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "hf-variables-file-"));
+    try {
+      writeFileSync(join(dir, "vars.json"), '{"title":"Hello"}');
+      expect(parseVariablesArg(undefined, join(dir, "vars.json"))).toEqual({
+        ok: true,
+        value: { title: "Hello" },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("validateVariablesAgainstProject", () => {
