@@ -221,6 +221,9 @@ describe("downloadFile", () => {
 });
 
 describe("stalled downloads", () => {
+  // Longer than a runner's file write, so each stall keeps the bytes it delivered.
+  const STALL_MS = 500;
+
   // A host whose every connection stops after `cut` bytes until the idle timeout fires.
   function stallingHost(
     content: Buffer,
@@ -282,7 +285,7 @@ describe("stalled downloads", () => {
     const progress: number[] = [];
 
     await downloadFile("https://example.test/model.onnx", dest, {
-      timeoutMs: 10,
+      timeoutMs: STALL_MS,
       onProgress: (received) => progress.push(received),
     });
 
@@ -417,8 +420,8 @@ describe("stalled downloads", () => {
     const dest = join(dir, "model.onnx");
 
     await expect(
-      downloadFile("https://example.test/model.onnx", dest, { timeoutMs: 10 }),
-    ).rejects.toThrow("Download timed out after 10ms");
+      downloadFile("https://example.test/model.onnx", dest, { timeoutMs: STALL_MS }),
+    ).rejects.toThrow(`Download timed out after ${STALL_MS}ms`);
     expect(ranges).toEqual([undefined, "bytes=300-"]);
     expect(readdirSync(dir)).toEqual([]);
   });
