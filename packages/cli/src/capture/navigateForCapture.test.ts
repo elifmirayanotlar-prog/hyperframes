@@ -467,26 +467,41 @@ describe("settleAcrossNavigation", () => {
   });
 });
 
-describe("a proxy that refuses the connection", () => {
-  it.each(["net::ERR_TUNNEL_CONNECTION_FAILED", "net::ERR_PROXY_CONNECTION_FAILED"])(
-    "is named as the refuser, with %s kept",
-    async (code) => {
-      const goto = vi.fn().mockRejectedValue(new Error(`${code} at https://shop.example.com/`));
-      const failure = (await navigateForCapture(
-        { goto },
-        "https://shop.example.com/",
-        120_000,
-      ).then(
-        () => undefined,
-        (err: unknown) => err,
-      )) as Error;
-      expect(failure.message).toMatch(
-        /^Your network's proxy refused the connection to shop\.example\.com/,
-      );
-      expect(failure.message).toContain(code);
-      expect(failure.message).toMatch(/another network|VPN|proxy/);
-    },
-  );
+describe("a proxy that was in the way", () => {
+  const failWith = async (message: string, url = "https://shop.example.com/") => {
+    const goto = vi.fn().mockRejectedValue(new Error(message));
+    return (await navigateForCapture({ goto }, url, 120_000).then(
+      () => undefined,
+      (err: unknown) => err,
+    )) as Error;
+  };
+
+  it("that refused the tunnel to the site is named, with the code kept", async () => {
+    const failure = await failWith(
+      "net::ERR_TUNNEL_CONNECTION_FAILED at https://shop.example.com/x?q=1",
+    );
+    expect(failure.message).toBe(
+      "Your network's proxy refused the connection to shop.example.com. Ask whoever runs it to allow shop.example.com. (net::ERR_TUNNEL_CONNECTION_FAILED)",
+    );
+    expect((failure.cause as Error).message).toContain("/x?q=1");
+  });
+
+  it("that could not be reached itself is not asked to allow the site", async () => {
+    const failure = await failWith("net::ERR_PROXY_CONNECTION_FAILED at https://shop.example.com/");
+    expect(failure.message).toBe(
+      "Could not reach your network's proxy. Check the proxy address and that the proxy is running, or ask whoever runs it. (net::ERR_PROXY_CONNECTION_FAILED)",
+    );
+    expect(failure.message).not.toContain("allow");
+  });
+
+  it("names no raw address when the site's cannot be read", () => {
+    const failure = explainProxyRefusal(
+      new Error("net::ERR_TUNNEL_CONNECTION_FAILED"),
+      "not a url at all",
+    ) as Error;
+    expect(failure.message).toContain("connection to the site");
+    expect(failure.message).not.toContain("not a url");
+  });
 
   it("is named after a networkidle2 timeout falls back too", async () => {
     const goto = vi

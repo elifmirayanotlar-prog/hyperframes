@@ -9,25 +9,28 @@ export { isNavigationTimeoutError };
 
 export const NETWORK_IDLE_ATTEMPT_MS = 30_000;
 
-/** Chromium's words for a proxy that was in the way: it refused or could not complete the connection to the site. */
-const PROXY_REFUSAL = /net::ERR_(?:TUNNEL_CONNECTION_FAILED|PROXY_CONNECTION_FAILED)/;
+/** Chromium's words for a proxy that was in the way, and what each says: the tunnel to the site was refused or could not
+ * be made through it, or the proxy itself could not be reached. */
+const PROXY_FAILURES = {
+  "net::ERR_TUNNEL_CONNECTION_FAILED": (host: string) =>
+    `Your network's proxy refused the connection to ${host}. Ask whoever runs it to allow ${host}.`,
+  "net::ERR_PROXY_CONNECTION_FAILED": () =>
+    "Could not reach your network's proxy. Check the proxy address and that the proxy is running, or ask whoever runs it.",
+} as const;
+const PROXY_FAILURE = new RegExp(Object.keys(PROXY_FAILURES).join("|"));
 
-/** The error as the person should read it when their network's proxy refused the connection; any other error as is. */
+/** The error as the person should read it when their network's proxy was the problem; any other error as is. */
 export function explainProxyRefusal(err: unknown, url: string): unknown {
   const said = err instanceof Error ? err.message : String(err);
-  const code = PROXY_REFUSAL.exec(said)?.[0];
+  const code = PROXY_FAILURE.exec(said)?.[0] as keyof typeof PROXY_FAILURES | undefined;
   if (!code) return err;
-  let host = url;
+  let host = "the site";
   try {
     host = new URL(url).host;
   } catch {
-    // expected: an unparseable address is named as given
+    // expected: an unparseable address is not echoed
   }
-  return new Error(
-    `Your network's proxy refused the connection to ${host} (${code}). Try another network or turn off the VPN or ` +
-      `proxy for this site, or ask whoever runs the proxy to allow ${host}.`,
-    { cause: err },
-  );
+  return new Error(`${PROXY_FAILURES[code](host)} (${code})`, { cause: err });
 }
 
 export type CaptureGotoWaitUntil = "networkidle2" | "domcontentloaded";
