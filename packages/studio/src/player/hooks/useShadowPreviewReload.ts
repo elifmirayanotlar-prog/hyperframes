@@ -55,6 +55,9 @@ function shadowPagePhase(iframe: HTMLIFrameElement | null): string {
   return "no-player";
 }
 
+const pageGotTo = (iframe: HTMLIFrameElement | null) =>
+  shadowPlayerReachable(iframe) ? "" : ` Its page had got to: ${shadowPagePhase(iframe)}.`;
+
 function isDocumentHidden(): boolean {
   return typeof document !== "undefined" && document.visibilityState === "hidden";
 }
@@ -134,10 +137,7 @@ export function useShadowPreviewReload({
         : pendingCommitRef.current?.gen !== gen
           ? "its timeline to be ready"
           : "its loaders to clear";
-      const iframe = shadowIframeRef.current;
-      const got = shadowPlayerReachable(iframe)
-        ? ""
-        : ` Its page had got to: ${shadowPagePhase(iframe)}.`;
+      const got = pageGotTo(shadowIframeRef.current);
       shadowGenRef.current += 1;
       stopPendingShadow();
       shadowIframeRef.current = null;
