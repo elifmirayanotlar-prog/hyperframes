@@ -1,7 +1,7 @@
 // Usage tracking shares the CLI and Studio identity. Properties stay coarse and
 // never carry intent text, file names, or paths.
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -119,7 +119,27 @@ function anonymousId() {
   }
 }
 
-function heygenAccountDistinctId() {
+// The HyperFrames user id for a HeyGen username: the same sha256-derived UUID
+// the CLI (auth/telemetryIdentity.ts), web app and Desktop key PostHog on.
+export function heygenUserId(username) {
+  const hash = createHash("sha256").update(username).digest();
+  hash[6] = (hash[6] & 0x0f) | 0x50;
+  hash[8] = (hash[8] & 0x3f) | 0x80;
+  const hex = hash.toString("hex");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join("-");
+}
+
+// The signed-in HeyGen account, keyed like the CLI's own identify call: the
+// username's user id, else the lowercased email (lowercased so different stored
+// casing never splits one person). `heygen_username` is the cross-project join
+// column for the Snowflake event table.
+function heygenAccount() {
   const file = join(process.env.HEYGEN_CONFIG_DIR || join(homedir(), ".heygen"), "credentials");
   try {
     if (!existsSync(file)) return null;
@@ -129,11 +149,16 @@ function heygenAccountDistinctId() {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     const user = parsed.user;
     if (!user || typeof user !== "object" || Array.isArray(user)) return null;
-    const id = typeof user.email === "string" && user.email.trim() ? user.email : user.username;
-    // Lowercased so this joins with the CLI's own identify call regardless of
-    // the account's stored email casing — two different-case distinct ids
-    // would otherwise split one person across two PostHog profiles.
-    return typeof id === "string" && id.trim() ? id.trim().toLowerCase() : null;
+    const email =
+      typeof user.email === "string" && user.email.trim() ? user.email.trim().toLowerCase() : null;
+    const username =
+      typeof user.username === "string" && user.username.trim() ? user.username : null;
+    const traits = {};
+    if (email) traits.email = email;
+    if (username) traits.heygen_username = username;
+    if (username) return { distinctId: heygenUserId(username), traits };
+    if (email) return { distinctId: email, traits };
+    return null;
   } catch {
     return null;
   }
@@ -149,7 +174,7 @@ function showTelemetryNotice() {
     console.error(
       [
         "media-use sends usage telemetry: media type, resolution source, and provider; never intent text, file names, or paths.",
-        "If you sign in to HeyGen, usage links to your account email or username. Opt out with HYPERFRAMES_NO_TELEMETRY=1 or DO_NOT_TRACK=1.",
+        "If you sign in to HeyGen, usage links to your account (email and username). Opt out with HYPERFRAMES_NO_TELEMETRY=1 or DO_NOT_TRACK=1.",
       ].join("\n"),
     );
     updateSharedConfig({ telemetryNoticeShown: true });
@@ -184,10 +209,14 @@ async function postEvent(event, properties, distinctId) {
 
 async function identifyAccount(anonId) {
   if (optedOut() || identifiedAccount) return;
-  const distinctId = heygenAccountDistinctId();
-  if (!distinctId) return;
+  const account = heygenAccount();
+  if (!account) return;
   identifiedAccount = true;
-  await postEvent("$identify", { $anon_distinct_id: anonId }, distinctId);
+  await postEvent(
+    "$identify",
+    { $anon_distinct_id: anonId, $set: account.traits },
+    account.distinctId,
+  );
 }
 
 /**

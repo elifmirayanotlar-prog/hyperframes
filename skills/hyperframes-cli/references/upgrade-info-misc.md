@@ -105,7 +105,7 @@ npx hyperframes telemetry disable     # disable usage telemetry
 npx hyperframes telemetry enable      # re-enable telemetry
 ```
 
-Telemetry is usage counters only. It is anonymous until the user signs in to HeyGen; after `auth login` it is linked to their account email (or username), so don't tell a signed-in user it is anonymous. Disable globally with `HYPERFRAMES_NO_TELEMETRY=1` if env-var control is preferred over the subcommand.
+Telemetry is usage counters only. It is anonymous until the user signs in to HeyGen; after `auth login` it is linked to their HeyGen account (email and username), so don't tell a signed-in user it is anonymous. Disable globally with `HYPERFRAMES_NO_TELEMETRY=1` if env-var control is preferred over the subcommand.
 
 Events include two fingerprint properties used to distinguish managed-sandbox runs from real laptops — no PII, no env-var **values**, only existence checks:
 

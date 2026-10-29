@@ -55,7 +55,7 @@ so a future call site can't silently ship untagged. Read-only discovery calls
 
 media-use uses the same shared install id as the `hyperframes` CLI/studio
 (`~/.hyperframes/config.json`). When you are signed in to HeyGen, usage is
-linked to your account email, or username when email is unavailable, matching
-the CLI behavior. The events stay coarse: media type, source, provider, and
+linked to your HeyGen account (keyed on an id derived from your username, with
+your email and username stored on it), matching the CLI behavior. The events stay coarse: media type, source, provider, and
 small counts only; intent text and paths stay local. Disable telemetry with
 `HYPERFRAMES_NO_TELEMETRY=1` or `DO_NOT_TRACK=1`.

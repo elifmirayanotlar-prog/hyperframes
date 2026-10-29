@@ -2022,11 +2022,13 @@ the `<app>/<version>/<channel>` tag an app that launches the CLI sets, sent as
 `client` so reports from that app can be told apart.
 
 Nothing personally identifying is collected until you sign in. **Signed-in usage
-is not anonymous.** When you run `hyperframes auth login`, your HeyGen account
-email — or username, if the account has no email — is linked to your usage from
-then on, and earlier anonymous usage on that install is merged into it.
-`media-use` links the same way when it finds a signed-in HeyGen account. Nothing
-else personal is added, and the opt-outs below still turn all of it off.
+is not anonymous.** When you run `hyperframes auth login`, your usage is linked
+to your HeyGen account from then on: it is keyed on an id derived from your
+HeyGen username (the same id the HyperFrames web app and Desktop use), and your
+account email and username are stored with it. Earlier anonymous usage on that
+install is merged into it. `media-use` links the same way when it finds a
+signed-in HeyGen account. Nothing else personal is added, and the opt-outs below
+still turn all of it off.
 
 Turn it all off with `HYPERFRAMES_NO_TELEMETRY=1` or the command above.
 [Feedback collection](/help#share-feedback) explains the post-render prompt and the
