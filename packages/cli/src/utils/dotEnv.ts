@@ -17,6 +17,9 @@ export const PROJECT_ENV_KEYS = [
   "HYPERFRAMES_OPENROUTER_MODEL",
   "HYPERFRAMES_GEMINI_MODEL",
   "HYPERFRAMES_VISION_TIMEOUT_MS",
+  // Telemetry opt-outs only turn sending off, and a project .env could already set them.
+  "HYPERFRAMES_NO_TELEMETRY",
+  "DO_NOT_TRACK",
 ];
 
 // A quoted value ends at its closing quote; unquoted, `#` starts a comment only after whitespace, so `pass#word` stays.

@@ -112,6 +112,17 @@ describe("loadProjectDotEnv", () => {
     }
   });
 
+  it("keeps a telemetry opt-out from the project .env", () => {
+    const dir = projectWith("HYPERFRAMES_NO_TELEMETRY=1\nDO_NOT_TRACK=1\n");
+    try {
+      const env: NodeJS.ProcessEnv = {};
+      loadProjectDotEnv(dir, env, vi.fn());
+      expect(env).toEqual({ HYPERFRAMES_NO_TELEMETRY: "1", DO_NOT_TRACK: "1" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("says nothing when every key is one the CLI reads, or there is no .env", () => {
     const dir = projectWith("OPENROUTER_API_KEY=k\n");
     try {
