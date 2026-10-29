@@ -200,7 +200,9 @@ test("track identifies a signed-in HeyGen account once and still sends events", 
       email: "alice@example.com",
       heygen_username: "alice",
     });
-    assert.equal(batch.filter((item) => item.event === "media_use_resolve").length, 2);
+    const resolves = batch.filter((item) => item.event === "media_use_resolve");
+    assert.equal(resolves.length, 2);
+    assert.ok(resolves.every((item) => item.properties.heygen_username === "alice"));
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv(savedEnv);
@@ -274,6 +276,7 @@ test("track does not identify when signed out", async () => {
     );
     assert.equal(batch[0].event, "media_use_resolve");
     assert.equal(batch[0].distinct_id, "anon-2");
+    assert.equal(batch[0].properties.heygen_username, undefined);
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv(savedEnv);

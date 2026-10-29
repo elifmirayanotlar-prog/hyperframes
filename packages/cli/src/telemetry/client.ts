@@ -10,6 +10,7 @@ import { c } from "../ui/colors.js";
 import { diag } from "../ui/diagnostics.js";
 import { getSystemMeta } from "./system.js";
 import { canaryEventProperties } from "./canary.js";
+import { signedInHeygenUsername } from "./signedInUser.js";
 import { enqueue, type EventProperties } from "./transport.js";
 import { telemetryRuntimeOverride } from "./policy.js";
 
@@ -130,6 +131,7 @@ export function trackEvent(
       ...canaryEventProperties(),
       agent_env_hints: sys.agent_env_hints ?? undefined,
       client: sys.client ?? undefined,
+      heygen_username: signedInHeygenUsername(),
     },
     distinctId,
   );

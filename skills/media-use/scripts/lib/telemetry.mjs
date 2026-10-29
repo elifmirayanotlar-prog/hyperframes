@@ -207,10 +207,8 @@ async function postEvent(event, properties, distinctId) {
   ]);
 }
 
-async function identifyAccount(anonId) {
-  if (optedOut() || identifiedAccount) return;
-  const account = heygenAccount();
-  if (!account) return;
+async function identifyAccount(anonId, account) {
+  if (optedOut() || identifiedAccount || !account) return;
   identifiedAccount = true;
   await postEvent(
     "$identify",
@@ -228,8 +226,14 @@ export async function track(event, properties = {}) {
   if (optedOut()) return;
   showTelemetryNotice();
   const anonId = anonymousId();
-  await identifyAccount(anonId);
-  await postEvent(event, properties, anonId);
+  const account = heygenAccount();
+  await identifyAccount(anonId, account);
+  const username = account?.traits.heygen_username;
+  await postEvent(
+    event,
+    username ? { ...properties, heygen_username: username } : properties,
+    anonId,
+  );
 }
 
 export function __anonymousIdForTest() {
