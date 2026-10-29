@@ -21,26 +21,23 @@ const CLIP_SECONDS = 12;
 const PICTURE_SECONDS = 20;
 const BOTH_LATE_SECONDS = 2;
 
-function ffprobeValue(args: string[]): number {
-  const result = spawnSync(getFfprobeBinary(), ["-v", "error", ...args, "-of", "csv=p=0"], {
-    encoding: "utf-8",
-  });
+function ffprobeValue(args: string[], path: string): number {
+  const result = spawnSync(
+    getFfprobeBinary(),
+    ["-v", "error", ...args, "-of", "csv=p=0", "--", path],
+    { encoding: "utf-8" },
+  );
   if (result.status !== 0) throw new Error(result.stderr);
   return Number(result.stdout.trim().split("\n")[0]);
 }
 
 /** The first video frame on the browser's timeline, which starts at the file's earliest timestamp. */
 function firstVideoFrameAt(path: string): number {
-  const videoPts = ffprobeValue([
-    "-select_streams",
-    "v:0",
-    "-read_intervals",
-    "%+#1",
-    "-show_entries",
-    "packet=pts_time",
+  const videoPts = ffprobeValue(
+    ["-select_streams", "v:0", "-read_intervals", "%+#1", "-show_entries", "packet=pts_time"],
     path,
-  ]);
-  return videoPts - Math.min(0, ffprobeValue(["-show_entries", "format=start_time", path]));
+  );
+  return videoPts - Math.min(0, ffprobeValue(["-show_entries", "format=start_time"], path));
 }
 
 function ffmpeg(args: string[]): void {
