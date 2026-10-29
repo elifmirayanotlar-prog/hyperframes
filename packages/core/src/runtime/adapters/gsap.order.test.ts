@@ -68,19 +68,26 @@ describe("a render that captures frames out of order", () => {
 
   it("replays no frame when no two tweens write the same property at once", () => {
     const rendersOfTwoSeeks = (fps?: number) => {
-      const [a, b] = [{ x: 0 }, { x: 0 }];
+      const [a, b, c, d] = [{ x: 0 }, { x: 0 }, { x: 0 }, { x: 0 }];
       const timeline = gsap.timeline({ paused: true });
       timeline
         .to(a, { x: 1, duration: 2 }, 0)
         .to(b, { x: 1, duration: 2 }, 0)
         .to(a, { x: 2, duration: 1 }, 2);
+      const pausedScene = gsap
+        .timeline()
+        .to(c, { x: 1, duration: 1 })
+        .to(c, { x: 2, duration: 1 }, 0.5);
+      timeline.add(pausedScene, 0.3);
+      pausedScene.pause();
+      timeline.add(gsap.timeline({ repeat: 3, yoyo: true }).to(d, { x: 1, duration: 0.5 }), 0);
       const film = timeline as unknown as RuntimeTimelineLike;
       let renders = 0;
       const totalTime = film.totalTime!.bind(film);
       film.totalTime = (...args) => (args.length ? (renders++, totalTime(...args)) : totalTime());
       seekGsapTimeline(film, 0, true, undefined, fps);
       seekGsapTimeline(film, 170 / FPS, true, undefined, fps);
-      return [renders, a.x, b.x];
+      return [renders, a.x, b.x, c.x, d.x];
     };
     expect(rendersOfTwoSeeks(FPS)).toEqual(rendersOfTwoSeeks());
   });

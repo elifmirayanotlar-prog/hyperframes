@@ -121,7 +121,6 @@ const SAME_PROPERTY: Record<string, string> = {
 type PlacedTween = GsapPlaced & {
   vars?: Record<string, unknown>;
   targets?: () => object[];
-  totalDuration?: () => number;
 };
 type PropertyWrite = { start: number; end: number; properties: Set<string> | null };
 
@@ -135,14 +134,31 @@ function propertiesWritten(vars: Record<string, unknown>): Set<string> | null {
   return properties;
 }
 
+function spanOnParent(
+  [start, length]: [number, number],
+  parent: GsapPlaced,
+): [number, number] | null {
+  const speed = Number(parent._ts);
+  if (!speed) return null;
+  const [from, span] =
+    parent._repeat || speed < 0
+      ? [0, Number(parent.totalDuration?.() ?? Infinity)]
+      : [start, length];
+  return [Number(parent._start) + from / Math.abs(speed), span / Math.abs(speed)];
+}
+
 function writeOf(tween: PlacedTween, timeline: RuntimeTimelineLike): PropertyWrite | null {
-  const start = startOnOwner(tween, timeline);
-  if (start === null) return null;
-  let speed = 1;
-  for (let parent = tween.parent; parent && parent !== timeline; parent = parent.parent)
-    speed *= Number(parent._ts);
-  const end = start + Number(tween.totalDuration?.() ?? 0) / speed;
-  return { start, end, properties: propertiesWritten(tween.vars ?? {}) };
+  let span: [number, number] | null = [Number(tween._start), Number(tween.totalDuration?.() ?? 0)];
+  for (let parent = tween.parent; span && parent && parent !== timeline; parent = parent.parent) {
+    span = spanOnParent(span, parent);
+  }
+  return (
+    span && {
+      start: span[0],
+      end: span[0] + span[1],
+      properties: propertiesWritten(tween.vars ?? {}),
+    }
+  );
 }
 
 function spansWhereTweensShareAProperty(timeline: RuntimeTimelineLike): [number, number][] {
@@ -150,7 +166,7 @@ function spansWhereTweensShareAProperty(timeline: RuntimeTimelineLike): [number,
   for (const child of timeline.getChildren?.(true, true, false) ?? []) {
     const tween = child as PlacedTween;
     const write = writeOf(tween, timeline);
-    if (!write) return [[-Infinity, Infinity]];
+    if (!write) continue;
     for (const target of tween.targets?.() ?? [])
       writes.set(target, [...(writes.get(target) ?? []), write]);
   }
@@ -294,6 +310,7 @@ type GsapPlaced = {
   _repeat?: number;
   parent?: GsapPlaced | null;
   getChildren?: unknown;
+  totalDuration?: () => number;
 };
 
 function startOnOwner(child: GsapPlaced, owner: object): number | null {
