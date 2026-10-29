@@ -59,7 +59,6 @@ const TOKEN_TAIL = String.raw`[^\s'")]*`;
  */
 const ABSOLUTE_PATH = new RegExp(
   // A Windows share (`\\server\share`) starts with two separators; the first is taken as its root.
-  // Never right after a letter or digit of any script, so it cannot start inside `客户/秘密/视频.mp4`.
   String.raw`(?<![:\w\p{L}\p{N}\p{M}/\\])(?:[A-Za-z]:|\\(?=\\[^\s\\/]))?(?:[\\/]${FOLDER})+[\\/]${SEGMENT}${TOKEN_TAIL}`,
   "gu",
 );
@@ -98,8 +97,7 @@ const BARE_RELATIVE_PATH = new RegExp(
     // Two or more separators: `customer/acme/video.mp4`. No extension needed —
     // that much structure is already a path.
     String.raw`(?<![^\s'\"(=,\[])(?:${SEGMENT}[\\/]){2,}${SEGMENT}${TOKEN_TAIL}`,
-    // Spaced folders (`My Drive/Claude Projects/edit.mp4`) only before a file name with an extension, so ffprobe's
-    // `N/A, start: 0.000000, bitrate: N/A` and `24/1 fps, 30000/1001 tbr` are never joined into one path.
+    // Spaced folders only before a file name with an extension, so ffprobe's `N/A, … bitrate: N/A` is not a path.
     String.raw`(?<![^\s'\"(=,\[])${SEGMENT}[\\/](?:${FOLDER}[\\/])+${SEGMENT_NODOT}\.\w{1,8}\b${TOKEN_TAIL}`,
     // One separator, but the last segment carries a file extension:
     // `assets/bgm.mp3`. That segment is dot-free on purpose — SEGMENT includes
