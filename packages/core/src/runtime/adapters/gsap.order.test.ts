@@ -16,10 +16,11 @@ function overlappingZoom() {
   return { params, timeline: timeline as unknown as RuntimeTimelineLike };
 }
 
-/** The zoom at each frame a renderer captures, in the order it captures them; a scene's clock starts at `hostStart`. */
-function capture(frames: number[], hostStart = 0): Map<number, number> {
+/** The zoom at each frame a renderer captures, in order; a scene's clock starts at `hostStart`. */
+function capture(frames: number[], hostStart = 0, seekFirst?: number): Map<number, number> {
   const { params, timeline } = overlappingZoom();
   const zoom = new Map<number, number>();
+  if (seekFirst !== undefined) seekGsapTimeline(timeline, seekFirst, true, undefined, FPS);
   for (const frame of frames) {
     seekGsapTimeline(timeline, frame / FPS - hostStart, true, undefined, FPS);
     zoom.set(frame, params.z);
@@ -55,5 +56,32 @@ describe("a render that captures frames out of order", () => {
         expect(z).toBeCloseTo(sceneInOrder.get(frame)!, 9);
       }
     }
+  });
+
+  it("gives every frame the same value when a scene held at 0 jumps to a chunk start between two frames", () => {
+    const hostStart = 0.0125;
+    const sceneInOrder = capture(range(1, FRAMES), hostStart);
+    for (const [frame, z] of capture(range(53, FRAMES), hostStart, 0)) {
+      expect(z).toBeCloseTo(sceneInOrder.get(frame)!, 9);
+    }
+  });
+
+  it("replays no frame when no two tweens write the same property at once", () => {
+    const rendersOfTwoSeeks = (fps?: number) => {
+      const [a, b] = [{ x: 0 }, { x: 0 }];
+      const timeline = gsap.timeline({ paused: true });
+      timeline
+        .to(a, { x: 1, duration: 2 }, 0)
+        .to(b, { x: 1, duration: 2 }, 0)
+        .to(a, { x: 2, duration: 1 }, 2);
+      const film = timeline as unknown as RuntimeTimelineLike;
+      let renders = 0;
+      const totalTime = film.totalTime!.bind(film);
+      film.totalTime = (...args) => (args.length ? (renders++, totalTime(...args)) : totalTime());
+      seekGsapTimeline(film, 0, true, undefined, fps);
+      seekGsapTimeline(film, 170 / FPS, true, undefined, fps);
+      return [renders, a.x, b.x];
+    };
+    expect(rendersOfTwoSeeks(FPS)).toEqual(rendersOfTwoSeeks());
   });
 });
