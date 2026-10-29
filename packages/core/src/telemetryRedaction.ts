@@ -13,12 +13,6 @@ export function redactUrlQueryStrings(value: string): string {
 }
 
 /**
- * Path characters we treat as part of a single segment. Space is deliberately
- * excluded: including it would let a match run past the path and swallow the
- * prose after it, and a path with a space still gets its remaining segments
- * redacted, which is the part that carries the identifying information.
- */
-/**
  * A path segment is defined by what ENDS it, not by an alphabet.
  *
  * `[\w...]` is ASCII-only, so `/数据/客户/秘密视频.mp4` and `/data/客户/secret.mp4`
