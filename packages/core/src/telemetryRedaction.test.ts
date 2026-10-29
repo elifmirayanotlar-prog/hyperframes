@@ -148,6 +148,15 @@ describe("paths with spaces", () => {
     );
   });
 
+  it.each([
+    "  Duration: N/A, start: 0.000000, bitrate: N/A",
+    "Stream #0:0: Video: h264, 24/1 fps, 30000/1001 tbr",
+    "r_frame_rate=24/1 avg_frame_rate=30000/1001",
+    "input/output error then read/write failed",
+  ])("never joins ordinary ffprobe words into a path: %s", (line) => {
+    expect(redactTelemetryString(line)).toBe(line);
+  });
+
   it("redacts spaced folders of a path that lost its root", () => {
     const out = redactTelemetryString("could not open My Drive/Claude Projects/edit.mp4");
     expect(out).not.toMatch(/Drive|Claude|Projects|edit/);
