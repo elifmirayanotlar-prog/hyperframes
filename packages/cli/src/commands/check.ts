@@ -639,7 +639,6 @@ function nonNegativeNumber(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-/** Why the browser pass did not run, when lint errors stopped it: the author fixes those, not the browser. */
 function browserSkippedLine(report: CheckReport): string {
   const lintError = report.lint.findings.some((finding) => finding.severity === "error");
   return lintError
