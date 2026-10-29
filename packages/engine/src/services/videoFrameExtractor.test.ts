@@ -4417,3 +4417,68 @@ describe("parseVideoElements hidden flag", () => {
     ]);
   });
 });
+
+// Each source frame N is a flat gray of 3N, so the frame a render shows reads straight off a pixel.
+describe.skipIf(!HAS_FFMPEG)("a clip whose data-start is off the frame grid", () => {
+  const FIXTURE_DIR = mkdtempSync(join(tmpdir(), "hf-offgrid-start-"));
+  const SOURCE = join(FIXTURE_DIR, "numbered.mp4");
+  const FPS = 30;
+
+  beforeAll(async () => {
+    const result = await runFfmpeg([
+      "-y",
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=black:s=64x64:d=6:r=30",
+      "-vf",
+      "format=gray,geq=lum='N*3'",
+      "-c:v",
+      "libx264",
+      "-crf",
+      "0",
+      "-g",
+      "30",
+      "-pix_fmt",
+      "yuv420p",
+      SOURCE,
+    ]);
+    if (!result.success) throw new Error(`fixture synthesis failed: ${result.stderr.slice(-400)}`);
+  }, 30_000);
+
+  afterAll(() => rmSync(FIXTURE_DIR, { recursive: true, force: true }), 30_000);
+
+  async function sourceFrameShown(start: number, outputFrame: number): Promise<number | null> {
+    const outDir = join(FIXTURE_DIR, `out-${start}`);
+    mkdirSync(outDir, { recursive: true });
+    const video: VideoElement = {
+      id: "v",
+      src: SOURCE,
+      start,
+      end: start + 1.9,
+      mediaStart: start,
+      loop: false,
+      hasAudio: false,
+    };
+    const result = await extractAllVideoFrames([video], FIXTURE_DIR, {
+      fps: FPS,
+      outputDir: outDir,
+    });
+    expect(result.errors).toEqual([]);
+    const table = createFrameLookupTable([video], result.extracted, FPS);
+    const path = table.getFrame("v", outputFrame / FPS);
+    return path ? Math.round(readFirstFramePixel(path, 0, 0)[0] / 3) : null;
+  }
+
+  it.each([1.95, 1.9667, 2.0001, 2.0167, 1.999999])(
+    "shows source frame N at output frame N for data-start=data-media-start=%s",
+    async (start) => {
+      const shown = [];
+      for (const n of [61, 62, 63, 64, 65]) shown.push(await sourceFrameShown(start, n));
+      expect(shown).toEqual([61, 62, 63, 64, 65]);
+    },
+    60_000,
+  );
+});
