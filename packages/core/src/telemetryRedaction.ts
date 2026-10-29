@@ -98,7 +98,7 @@ const BARE_RELATIVE_PATH = new RegExp(
     // that much structure is already a path.
     String.raw`(?<![^\s'\"(=,\[])(?:${SEGMENT}[\\/]){2,}${SEGMENT}${TOKEN_TAIL}`,
     // Spaced folders only before a file name with an extension, so ffprobe's `N/A, … bitrate: N/A` is not a path.
-    String.raw`(?<![^\s'\"(=,\[])${SEGMENT}[\\/](?:${FOLDER}[\\/])+${SEGMENT_NODOT}\.\w{1,8}\b${TOKEN_TAIL}`,
+    String.raw`(?<![^\s'\"(=,\[])${SEGMENT}[\\/](?:${FOLDER}[\\/]){1,8}${SEGMENT_NODOT}\.\w{1,8}\b${TOKEN_TAIL}`,
     // One separator, but the last segment carries a file extension:
     // `assets/bgm.mp3`. That segment is dot-free on purpose — SEGMENT includes
     // `.`, so a greedy one swallows the extension this rule needs.
