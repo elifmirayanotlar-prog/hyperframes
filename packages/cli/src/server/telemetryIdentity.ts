@@ -23,6 +23,7 @@ import {
   shouldTrack as telemetryShouldTrack,
 } from "../telemetry/client.js";
 import { canaryDecisionsForStudio, type CliCanaryDecision } from "../telemetry/canary.js";
+import { resetSignedInAccountCache } from "../telemetry/account.js";
 import { detectAgentRuntime } from "../telemetry/agent_runtime.js";
 
 /**
@@ -304,6 +305,7 @@ export function refreshTelemetryPosture(): void {
   try {
     readConfigFresh();
     resetTelemetryPostureCache();
+    resetSignedInAccountCache();
   } catch {
     /* telemetry must never break the preview server */
   }

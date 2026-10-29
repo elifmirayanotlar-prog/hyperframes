@@ -6,6 +6,7 @@ import { FEEDBACK_RATING_SCALE } from "../utils/feedbackRating.js";
 import type { CatalogUsage } from "../utils/catalogUsage.js";
 import { flush, shouldTrack, trackEvent } from "./client.js";
 import { readConfig } from "./config.js";
+import { setSignedInAccountId } from "./account.js";
 import { getPowerState } from "./system.js";
 import type { RenderCpuTelemetryPayload } from "./renderCpu.js";
 import { CliRuntimeError } from "../utils/commandResult.js";
@@ -834,7 +835,7 @@ export function trackBrowserInstall(): void {
 // rejected key all look identical (i.e. absent). These three events close that
 // gap so the sign-in funnel is measurable like the render funnel already is.
 // `method` is "oauth" (the default browser PKCE flow), "device" (attended
-// RFC 8628 flow), or "api_key". No token,
+// RFC 8628 flow), or "api_key". Apart from the signed-in `$user_id`, no token,
 // key, identity, email, or free text is ever attached — only the method and a
 // low-cardinality outcome/reason.
 //
@@ -876,6 +877,7 @@ export function trackAuthLoginFailed(
 // see the privacy notice in showTelemetryNotice and docs/packages/cli.mdx.
 export function identifyUser(distinctId: string): void {
   if (!distinctId) return;
+  setSignedInAccountId(distinctId);
   trackEvent("$identify", { $anon_distinct_id: readConfig().anonymousId }, distinctId);
 }
 
