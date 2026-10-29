@@ -3262,6 +3262,20 @@ describe("layout-audit.browser occlusion", () => {
     );
   });
 
+  it("lets data-layout-allow-occlusion on the covering element silence text_occluded", () => {
+    const issues = (overlayAttrs?: string) =>
+      auditOcclusionScene({
+        overlayAttrs,
+        overlayStyle: { backgroundColor: "rgb(10, 10, 10)" },
+        topmostId: "overlay",
+      });
+
+    expect(issues().some((issue) => issue.code === "text_occluded")).toBe(true);
+    expect(
+      issues("data-layout-allow-occlusion").some((issue) => issue.code === "text_occluded"),
+    ).toBe(false);
+  });
+
   it("respects the data-layout-allow-occlusion opt-out", () => {
     const issues = auditOcclusionScene({
       headlineAttrs: "data-layout-allow-occlusion",
