@@ -37,6 +37,7 @@ import { emitStudioRenderComplete, emitStudioRenderError } from "./studioRenderT
 import { startRenderCpuSampler } from "../telemetry/renderCpu.js";
 import { mountDesktopRoutes } from "./desktopRoutes.js";
 import { isDevMode } from "../utils/env.js";
+import { insideHostApp } from "../utils/desktopApp.js";
 import { runRenderSetupWorker } from "../utils/cancellableProcess.js";
 import type { ProjectLintResult } from "@hyperframes/lint";
 import { resolveRenderBrowser } from "../browser/preflight.js";
@@ -66,6 +67,7 @@ import {
   HistoryClosedError,
   historyCache,
 } from "@hyperframes/studio-server";
+import { encoderJobOptions } from "@hyperframes/studio-server/encoder-options";
 import { resolveAutoProxy } from "../utils/projectConfig.js";
 import {
   clearElementScreenshotIsolation,
@@ -515,6 +517,7 @@ export function createStudioServer(options: StudioServerOptions): StudioServer {
       }),
   );
   const projectHistory = () => histories.get(projectDir);
+  const hostAppOwnsHistory = insideHostApp();
   watcher.addListener((changedPath) => {
     void histories.peek(projectDir)?.then((opened) => opened?.noteChange(changedPath));
   });
@@ -526,7 +529,7 @@ export function createStudioServer(options: StudioServerOptions): StudioServer {
   let shuttingDown = false;
 
   const adapter: PreviewApiAdapter = {
-    history: () => projectHistory(),
+    history: () => (hostAppOwnsHistory ? null : projectHistory()),
     loadSharp: () => loadSharpInBackground("image thumbnails"),
     // Explicit option wins (preview's resolved --proxy/--no-proxy + config);
     // otherwise honor the project's hyperframes.json media.autoProxy so every
@@ -569,11 +572,21 @@ export function createStudioServer(options: StudioServerOptions): StudioServer {
       const { injectDeterministicFontFaces } = await import("@hyperframes/core/fonts/embed");
       const { prepareAnimatedGifInputs } =
         await import("../../../producer/src/services/animatedGifPrep.js");
+      const { prepareHeifImageInputs } =
+        await import("../../../producer/src/services/heifImagePrep.js");
       const { downloadToTemp, writeUrlDownloadTelemetry } =
         await import("../../../producer/src/utils/urlDownloader.js");
       const gifOutputDir = join(project.dir, ".hyperframes", "prepared-assets", "gif");
       const gifDownloadDir = join(project.dir, ".hyperframes", "prepared-assets", "downloads");
-      const prepared = await prepareAnimatedGifInputs(html, {
+      const heifOutputDir = join(project.dir, ".hyperframes", "prepared-assets", "heif");
+      const { html: htmlWithJpegs } = await prepareHeifImageInputs(html, {
+        projectDir: project.dir,
+        downloadDir: gifDownloadDir,
+        outputDir: heifOutputDir,
+        outputSrcPrefix: ".hyperframes/prepared-assets/heif",
+        onFailure: (error) => console.warn(`[studio] ${error.message}`),
+      });
+      const prepared = await prepareAnimatedGifInputs(htmlWithJpegs, {
         projectDir: project.dir,
         downloadDir: gifDownloadDir,
         outputDir: gifOutputDir,
@@ -646,7 +659,7 @@ export function createStudioServer(options: StudioServerOptions): StudioServer {
           state.status = "cancelled";
           for (const suffix of ["", ".meta.json"]) {
             const fp = suffix
-              ? opts.outputPath.replace(/\.(mp4|webm|mov)$/, suffix)
+              ? opts.outputPath.replace(/\.(mp4|webm|mov|gif)$/, suffix)
               : opts.outputPath;
             try {
               if (existsSync(fp)) unlinkSync(fp);
@@ -670,14 +683,12 @@ export function createStudioServer(options: StudioServerOptions): StudioServer {
             fps: opts.fps,
             quality: opts.quality as "draft" | "standard" | "high",
             format: opts.format,
+            ...(opts.gifLoop !== undefined ? { gifLoop: opts.gifLoop } : {}),
             outputResolution: opts.outputResolution,
             ...(manualEditsRenderScript ? { renderBodyScripts: [manualEditsRenderScript] } : {}),
             ...(opts.composition ? { entryFile: opts.composition } : {}),
             ...(opts.variables ? { variables: opts.variables } : {}),
-            ...(opts.crf !== undefined ? { crf: opts.crf } : {}),
-            ...(opts.videoBitrate ? { videoBitrate: opts.videoBitrate } : {}),
-            ...(opts.videoFrameFormat ? { videoFrameFormat: opts.videoFrameFormat } : {}),
-            ...(opts.hdrMode ? { hdrMode: opts.hdrMode } : {}),
+            ...encoderJobOptions(opts),
             ...(opts.useGpu ? { useGpu: true } : {}),
             ...(opts.pageMotionBlur ? { pageMotionBlur: opts.pageMotionBlur } : {}),
           });
@@ -702,7 +713,7 @@ export function createStudioServer(options: StudioServerOptions): StudioServer {
           if (job.audioLoweredDb !== undefined) state.audioLoweredDb = job.audioLoweredDb;
           state.status = "complete";
           state.progress = 100;
-          const metaPath = opts.outputPath.replace(/\.(mp4|webm|mov)$/, ".meta.json");
+          const metaPath = opts.outputPath.replace(/\.(mp4|webm|mov|gif)$/, ".meta.json");
           writeFileSync(
             metaPath,
             JSON.stringify({
@@ -736,7 +747,7 @@ export function createStudioServer(options: StudioServerOptions): StudioServer {
             cpu.stop(),
           );
           try {
-            const metaPath = opts.outputPath.replace(/\.(mp4|webm|mov)$/, ".meta.json");
+            const metaPath = opts.outputPath.replace(/\.(mp4|webm|mov|gif)$/, ".meta.json");
             writeFileSync(metaPath, JSON.stringify({ status: "failed" }));
           } catch {
             /* ignore */

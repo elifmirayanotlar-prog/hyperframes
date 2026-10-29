@@ -65,6 +65,7 @@ import { REMOTE_MEDIA_SUBDIR } from "../../htmlCompiler.js";
 import { resolveRenderFpsConfig } from "../../fileServer.js";
 import type { ProducerLogger } from "../../../logger.js";
 import { encoderFailureError } from "../encoderInterruption.js";
+import { rendersSdrOnly } from "../hdrMode.js";
 import {
   compareExtractionFailureGroups,
   extractionFailureGroupIdentityKey,
@@ -232,10 +233,12 @@ export class VideoExtractionStageError extends Error {
         affectedElementCount: failure.count,
       })),
     ),
+    ffmpegReason?: string,
   ) {
     const total = failures.reduce((sum, failure) => sum + failure.count, 0);
     const breakdown = failures.map((failure) => `${failure.kind}=${failure.count}`).join(",");
-    super(`Video extraction failed for ${total} source(s) [${code}; ${breakdown}]`);
+    const reason = ffmpegReason ? `: ffmpeg said: ${ffmpegReason}` : "";
+    super(`Video extraction failed for ${total} source(s) [${code}; ${breakdown}]${reason}`);
     this.name = "VideoExtractionStageError";
     this.publicMetadata = { extractionFailure };
   }
@@ -275,6 +278,7 @@ function buildVideoExtractionStageError(
     retryable,
     failures,
     extractionFailureMetadataFromResult(result),
+    result.errors.find((failure) => failure.ffmpegReason)?.ffmpegReason,
   );
 }
 
@@ -510,7 +514,7 @@ export async function runExtractVideosStage(
         fps: job.config.fps,
         outputDir: join(compiledDir, "__hyperframes_video_frames"),
         format: job.config.videoFrameFormat ?? "auto",
-        toneMapHdrToSdr: job.config.hdrMode === "force-sdr",
+        toneMapHdrToSdr: rendersSdrOnly(job.config),
         timelineEnd: composition.duration,
         maxTransientRetries: extractionPolicy.maxTransientRetries,
         collectProbeFailures: extractionPolicy.failureMode === "enforce",

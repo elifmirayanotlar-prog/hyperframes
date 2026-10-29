@@ -1,6 +1,6 @@
 import { setCommandExitCode, requestCliExit } from "../utils/commandResult.js";
 // fallow-ignore-file code-duplication
-import { defineCommand } from "citty";
+import { defineCommand } from "../utils/defineCommand.js";
 import type { Example } from "./_examples.js";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
@@ -37,7 +37,7 @@ import { existsSync, lstatSync, mkdirSync, readlinkSync, symlinkSync, unlinkSync
 import { resolve, dirname, basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import * as clack from "@clack/prompts";
+import * as clack from "../ui/prompts.js";
 import { c } from "../ui/colors.js";
 import { desktopHint, insideHostApp } from "../utils/desktopApp.js";
 import { isDevMode } from "../utils/env.js";
@@ -80,6 +80,7 @@ import {
   type PreviewLifecycleSession,
 } from "./previewLifecycleOutput.js";
 import { resolveLocalBrowserGpuMode, type BrowserGpuMode } from "../browser/gpuPolicy.js";
+import { parsePort } from "../utils/port.js";
 
 interface BrowserLaunchOptions {
   noOpen?: boolean;
@@ -693,10 +694,12 @@ export function previewLaunchModeError(options: {
 }
 
 export function previewPortError(port: string | undefined): string | null {
-  const value = port ?? "3002";
-  if (!/^\d+$/.test(value)) return "--port must be an integer between 1 and 65535";
-  const parsed = Number(value);
-  return parsed >= 1 && parsed <= 65535 ? null : "--port must be an integer between 1 and 65535";
+  try {
+    parsePort(port ?? "3002");
+    return null;
+  } catch (error) {
+    return errorMessage(error);
+  }
 }
 
 export function publicPreviewPid(

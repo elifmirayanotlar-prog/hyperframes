@@ -700,6 +700,41 @@ describe("resolveFrameFormat", () => {
       "png",
     );
   });
+
+  type FormatCase = Pick<VideoMetadata, "videoCodec" | "hasAlpha" | "alphaPlaneDecoded"> & {
+    requested: "auto" | "jpg" | "png";
+  };
+  const formatCases: FormatCase[] = ["vp9", "vp8", "h264", "prores"].flatMap((videoCodec) =>
+    [true, false].flatMap((hasAlpha) =>
+      [true, false, undefined].flatMap((alphaPlaneDecoded) =>
+        (["auto", "jpg", "png"] as const).map((requested) => ({
+          videoCodec,
+          hasAlpha,
+          alphaPlaneDecoded,
+          requested,
+        })),
+      ),
+    ),
+  );
+  function expectedFormat({ videoCodec, hasAlpha, alphaPlaneDecoded, requested }: FormatCase) {
+    const sidecar = videoCodec === "vp9" || videoCodec === "vp8";
+    const keepsPng = hasAlpha || (sidecar && alphaPlaneDecoded !== false);
+    return keepsPng || requested === "png" ? "png" : "jpg";
+  }
+
+  it("lets VP8/VP9 leave png only when a decode probe found no alpha plane", () => {
+    expect(formatCases).toHaveLength(72);
+    for (const { requested, ...fields } of formatCases) {
+      const actual = resolveFrameFormat(metadata(fields), requested);
+      expect(actual, JSON.stringify(fields)).toBe(expectedFormat({ requested, ...fields }));
+    }
+    expect(resolveFrameFormat(metadata({ videoCodec: "vp9", alphaPlaneDecoded: false }))).toBe(
+      "jpg",
+    );
+    expect(resolveFrameFormat(metadata({ videoCodec: "vp8", alphaPlaneDecoded: false }))).toBe(
+      "jpg",
+    );
+  });
 });
 
 describe("parseVideoElements", () => {
@@ -2198,7 +2233,7 @@ describe.skipIf(!HAS_FFMPEG)("frame sampling at the output frame rate", () => {
       requested = opts;
       return real(["-stats_period", "0.1", "-re", ...args], {
         ...opts,
-        stallTimeout: 60_000,
+        timeout: 60_000,
         onStderr: readStats,
       });
     });
@@ -2213,19 +2248,56 @@ describe.skipIf(!HAS_FFMPEG)("frame sampling at the output frame rate", () => {
         { ffmpegProcessTimeout: 2000 },
       );
       expect(extracted.totalFrames).toBe(20);
-      expect(requested).toMatchObject({ stallTimeout: 2000 });
-      expect(requested).not.toHaveProperty("timeout");
+      expect(requested).toMatchObject({ timeout: 2000 });
       expect(new Set(reported).size).toBeGreaterThan(1);
     } finally {
       vi.mocked(runFfmpeg).mockImplementation(real);
     }
   }, 30_000);
 
+  it.each([
+    { name: "one keyframe", keyint: "infinite", gapSeconds: 8 },
+    { name: "a keyframe every second", keyint: "30", gapSeconds: 0 },
+  ])(
+    "gives the stall clock the time to decode up to the seek point ($name)",
+    async ({ keyint, gapSeconds }) => {
+      const source = join(FIXTURE_DIR, `gop-${keyint}.mp4`);
+      const synth = await runFfmpeg([
+        ...["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi"],
+        ...["-i", `testsrc=s=${WIDTH}x${HEIGHT}:r=30:d=10`, "-pix_fmt", "yuv420p"],
+        ...["-x264-params", `keyint=${keyint}:scenecut=0`, source],
+      ]);
+      if (!synth.success) throw new Error(`gop fixture synthesis failed: ${synth.stderr}`);
+      const { runFfmpeg: real } =
+        await vi.importActual<typeof import("../utils/runFfmpeg.js")>("../utils/runFfmpeg.js");
+      let requested: RunFfmpegOptions | undefined;
+      vi.mocked(runFfmpeg).mockImplementation((args, opts) => {
+        requested = opts;
+        return real(args, opts);
+      });
+      try {
+        await extractVideoFramesRange(
+          source,
+          `stall-seek-${keyint}`,
+          8,
+          1,
+          { fps: 10, outputDir: FIXTURE_DIR, format: "png" },
+          undefined,
+          { ffmpegProcessTimeout: 2000 },
+        );
+        expect(requested?.timeout).toBe(2000 + gapSeconds * 1000);
+      } finally {
+        vi.mocked(runFfmpeg).mockImplementation(real);
+      }
+    },
+    30_000,
+  );
+
   it("stops a run that writes no new frame for the stall timeout", async () => {
     // stdin stays open and empty, so ffmpeg waits for its first frame forever.
     const stalled = await runFfmpeg(
       ["-f", "rawvideo", "-pix_fmt", "gray", "-s", "2x2", "-i", "pipe:0", "-f", "null", "-"],
-      { stallTimeout: 500 },
+      { timeout: 500 },
     );
     expect(stalled.terminationReason).toBe("inactivity");
   }, 30_000);
@@ -3209,6 +3281,22 @@ describe.skipIf(!HAS_FFMPEG)("extractAllVideoFrames on a VFR source", () => {
     expect(
       readFileSync(framePath(result, "sdr", 0)).equals(readFileSync(plain.framePaths.get(0)!)),
     ).toBe(false);
+  }, 60_000);
+
+  it("leaves SDR clips alone in a mixed timeline that tone-maps to SDR", async () => {
+    const SDR = await synthCfrClip("sdr-tonemap-peer.mp4", 1);
+    const HDR = await synthHdrTaggedClip("hdr-tonemap-peer.mp4", 1);
+    const outputDir = join(FIXTURE_DIR, "out-hdr-tonemap-mixed");
+    mkdirSync(outputDir, { recursive: true });
+
+    const result = await extractAllVideoFrames(
+      [cfrClipElement("sdr", SDR, 1), { ...cfrClipElement("hdr", HDR, 1), start: 1, end: 2 }],
+      FIXTURE_DIR,
+      { fps: 30, outputDir, toneMapHdrToSdr: true },
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.phaseBreakdown.hdrPreflightCount).toBe(0);
   }, 60_000);
 
   it("keeps a finite SDR past-EOF slot in a mixed HDR timeline", async () => {
@@ -4281,6 +4369,14 @@ describe("getFrameAtTime — IEEE 754 boundary precision", () => {
     const extracted = makeExtracted(25, 10);
     const frame = getFrameAtTime(extracted, 0.28, 0);
     expect(frame).toBe("frame-7.jpg");
+  });
+
+  it("picks the frame the preview shows when a clip starts a hair after a frame instant", () => {
+    // 449/30 written with six decimals starts the clip a third of a microsecond late. The preview's
+    // <video> still shows the take's second frame at output frame 450, so the render must too.
+    const extracted = makeExtracted(30, 100);
+    expect(getFrameAtTime(extracted, 450 / 30, 14.966667, false, 4.3)).toBe("frame-1.jpg");
+    expect(getFrameAtTime(extracted, 460 / 30, 14.966667, false, 4.3)).toBe("frame-11.jpg");
   });
 
   it("mediaStart does not offset frame index (extractor handles trim via -ss)", () => {

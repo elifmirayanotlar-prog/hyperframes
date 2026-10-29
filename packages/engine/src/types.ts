@@ -6,6 +6,7 @@
  */
 import type { AudioFailureDiagnostic } from "./services/audioMixer.types.js";
 import type { Fps } from "@hyperframes/core";
+import type { CompositionLengthSource } from "@hyperframes/core/runtime/composition-length";
 import type { ChromeMemoryStats } from "./services/chromeMemorySampler.js";
 import type { MotionBlurOptions } from "./services/motionBlur.js";
 
@@ -19,11 +20,12 @@ export type PageMotionBlurOff = "off" | "hdr-render" | "layered-composite" | "di
 export type SubTimelineWaitOutcome = "ready" | "timeout" | "script_failure";
 
 /**
- * Shared by every capture session of one render: composition ids whose timeline
- * wait already timed out, so later sessions report the timeout without waiting again.
+ * Shared by every capture session of one render: timeline waits that already timed out
+ * (so later sessions skip the wait), and scene callback errors the render log already shows.
  */
 export interface SubTimelineWaitMemo {
   unregisteredIds?: readonly string[];
+  loggedSceneCallbackErrors?: string[];
 }
 
 export type CaptureWarningCode =
@@ -129,6 +131,8 @@ export interface HfSeekOptions {
 export interface HfProtocol {
   /** Total duration of the composition in seconds */
   duration: number;
+  /** Which input set `duration`. */
+  lengthSource?: CompositionLengthSource;
   /** Seek to a specific time. Must produce deterministic visual output. */
   seek(time: number, options?: HfSeekOptions): void;
   /** Optional: media elements the engine should handle */
@@ -168,6 +172,7 @@ export interface CaptureOptions {
    */
   fps: Fps;
   format?: "jpeg" | "png";
+  transparent?: boolean;
   quality?: number;
   /**
    * Opt into sub-frame multi-sample motion blur (issue #4010). Absent means off and the
@@ -240,6 +245,8 @@ export interface CaptureOptions {
    * Clamped to 0..8 like the env knob; HF_DE_VERIFY, when set, still wins.
    */
   deVerifySamples?: number;
+  deFrameFallback?: boolean;
+  onEffectScanProgress?: (scannedFrames: number, totalFrames: number) => void;
 }
 
 export interface CaptureVideoMetadataHint {
@@ -416,6 +423,7 @@ export interface CapturePerfSummary {
   deVerifyInitMs: number;
   /** Clip-cut boundary frames routed to per-frame screenshot (Lim 6). */
   deBoundaryFrames: number;
+  deRiskFrames: number;
   /** Per-frame "No cached paint record" screenshot fallbacks during capture. */
   deNcprFallbacks: number;
   /**

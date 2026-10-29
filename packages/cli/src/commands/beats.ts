@@ -1,7 +1,7 @@
 import { failCommand } from "../utils/commandResult.js";
-import { defineCommand } from "citty";
-import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { defineCommand } from "../utils/defineCommand.js";
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
 import {
   analyzeMusicFromSignal,
   audioRelPathForSrc,
@@ -21,6 +21,7 @@ import { c } from "../ui/colors.js";
 export const examples: Example[] = [
   ["Generate the beat file for the current project", "hyperframes beats"],
   ["Generate for a specific directory", "hyperframes beats ./my-video"],
+  ["Beats of a single audio file", "hyperframes audio music.mp3 --only beats --json"],
 ];
 
 function fail(message: string): never {
@@ -49,22 +50,26 @@ function findMusicSrc(html: string): string | null {
   return findMusicAudioSrc(document.toString());
 }
 
-/** Locate the music track + its on-disk audio, or fail with a clear message. */
-function resolveMusicTarget(project: ProjectDir): { rel: string; audioPath: string } {
+const NO_MUSIC_TRACK =
+  'No music track found. Add data-timeline-role="music" to the <audio> element, or to a ' +
+  '<video data-has-audio="true"> whose own sound is the music ' +
+  "(or give it an id like music/bgm/soundtrack).";
+
+/** Locate the music track + its on-disk audio: null when the composition has none, or fail with a clear message. */
+function resolveMusicTarget(project: ProjectDir): { rel: string; audioPath: string } | null {
   const src = findMusicSrc(readFileSync(project.indexPath, "utf-8"));
-  if (!src) {
-    fail(
-      'No music track found. Add data-timeline-role="music" to the <audio> element, or to a ' +
-        '<video data-has-audio="true"> whose own sound is the music ' +
-        "(or give it an id like music/bgm/soundtrack).",
-    );
-  }
+  if (!src) return null;
   const rel = audioRelPathForSrc(src); // same derivation the Studio uses
   if (!rel) fail(`Cannot derive a beat-file path for music src: ${src}`);
   const audioPath = resolveWithinProject(project.dir, rel);
   if (!audioPath) fail(`Music src resolves outside the project: ${src}`);
   if (!existsSync(audioPath)) fail(`Audio file not found: ${rel}`);
   return { rel, audioPath };
+}
+
+function answerNoTrack(json: boolean): void {
+  if (!json) fail(NO_MUSIC_TRACK);
+  console.log(JSON.stringify({ ok: true, track: null, file: null, count: 0, bpm: null }, null, 2));
 }
 
 async function decode(audioPath: string): Promise<AudioSignal> {
@@ -101,8 +106,19 @@ export default defineCommand({
     json: { type: "boolean", description: "Output result as JSON", default: false },
   },
   async run({ args }) {
+    if (args.dir && existsSync(resolve(args.dir)) && statSync(resolve(args.dir)).isFile()) {
+      const file = JSON.stringify(args.dir);
+      fail(
+        /\.html?$/i.test(args.dir)
+          ? `${args.dir} is a file; beats takes the project folder: hyperframes beats ${JSON.stringify(dirname(args.dir))}`
+          : `${args.dir} is a file; beats takes a project folder. ` +
+              `For one audio or video file run: hyperframes audio ${file} --only beats --json`,
+      );
+    }
     const project = resolveProject(args.dir);
-    const { rel, audioPath } = resolveMusicTarget(project);
+    const target = resolveMusicTarget(project);
+    if (!target) return answerNoTrack(Boolean(args.json));
+    const { rel, audioPath } = target;
     if (!args.json) console.log(c.dim(`Analyzing ${rel}…`));
 
     const result = await analyzeMusicFromSignal(await decode(audioPath));

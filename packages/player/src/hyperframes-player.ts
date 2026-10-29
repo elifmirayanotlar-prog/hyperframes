@@ -450,6 +450,7 @@ class HyperframesPlayer extends HTMLElement {
       }
     }
     if (this._media.audioOwner === "parent") this._media.playAll();
+    else this._media.primeAll();
     this.controlsApi?.updatePlaying(true);
     if (!queuedForReady && announce) this._emit(new Event("play"));
     if (directTimelineStarted && this._directTimelineAdapter) {
@@ -1614,6 +1615,9 @@ class HyperframesPlayer extends HTMLElement {
       },
       this._isAudioLocked(),
     );
+    this.controlsApi.updateTime(this._currentTime, this._duration);
+    this.controlsApi.updatePlaying(!this._paused);
+    this.controlsApi.updateSpeed(this.playbackRate);
   }
 
   // Test-instrumentation pass-throughs (match original field names).
