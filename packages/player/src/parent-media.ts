@@ -223,7 +223,7 @@ export class ParentMediaManager {
   primeAll(): void {
     if (!startsSoundOnlyInsideATap()) return;
     for (const m of this._entries) {
-      if (m.el.muted || !m.el.paused) continue;
+      if (!m.el.paused) continue;
       m.el.play().catch(() => {});
       m.el.pause();
     }

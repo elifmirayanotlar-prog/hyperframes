@@ -204,11 +204,11 @@ function markPlayRequested(el: HTMLMediaElement): void {
 }
 
 // iOS refuses an unmuted start ~5 s after the tap unless that element played inside a tap: play-then-pause
-// each idle unmuted one from the tap's own call stack. Muted clips start freely and stay deferred.
+// each idle unmuted one from the tap's own call stack. Authored-muted clips start freely and stay deferred.
 export function primeMediaForLaterStarts(els: Iterable<HTMLMediaElement>): void {
   if (!startsSoundOnlyInsideATap()) return;
   for (const el of els) {
-    if (el.muted || !el.paused || playRequested.has(el) || isUnplayable(el)) continue;
+    if (el.defaultMuted || !el.paused || playRequested.has(el) || isUnplayable(el)) continue;
     el.play().catch(() => {});
     el.pause();
   }

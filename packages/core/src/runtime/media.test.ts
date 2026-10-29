@@ -1836,7 +1836,7 @@ describe("syncRuntimeMedia", () => {
       const order: string[] = [];
       idle.play = vi.fn(() => (order.push("play"), Promise.resolve()));
       idle.pause = vi.fn(() => void order.push("pause"));
-      muted.muted = true;
+      muted.setAttribute("muted", "");
       Object.defineProperty(sounding, "paused", { value: false });
       primeMediaForLaterStarts([idle, muted, sounding]);
       expect(order).toEqual(["play", "pause"]);
