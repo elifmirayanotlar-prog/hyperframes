@@ -6,8 +6,6 @@ import type { CheckBrowserResult } from "./checkTypes.js";
 
 const CHECK_IDLE_MS = 120_000;
 
-/** How long a check may go without progress: the render-ready wait the author allowed with --timeout, and a
- * margin, when that is longer than the usual window. */
 export const idleWindow = (timeoutMs: number): number =>
   Math.max(CHECK_IDLE_MS, timeoutMs + 10_000);
 const SCRIPT_START = "[hyperframes:script:start] ";
