@@ -26,16 +26,25 @@ describe("buildTelemetryJoinKeys", () => {
     const keys = buildTelemetryJoinKeys({
       feedbackId: "f",
       anonymousId: "t",
-      lastCheck: { exitCode: 1, codes: { text_overlap: 4, contrast_low: 1 } },
+      lastCheck: { at: "", exitCode: 1, codes: { text_overlap: 4, contrast_low: 1 } },
     });
     expect(keys).toBe("fid=f tid=t check=exit1:text_overlap*4,contrast_low*1");
+  });
+
+  it("says unfinished when the last check never reported an exit code", () => {
+    const keys = buildTelemetryJoinKeys({
+      feedbackId: "f",
+      anonymousId: "t",
+      lastCheck: { at: "", codes: {} },
+    });
+    expect(keys).toBe("fid=f tid=t check=unfinished");
   });
 
   it("says only the exit code when the last check had no error codes", () => {
     const keys = buildTelemetryJoinKeys({
       feedbackId: "f",
       anonymousId: "t",
-      lastCheck: { exitCode: 0, codes: {} },
+      lastCheck: { at: "", exitCode: 0, codes: {} },
     });
     expect(keys).toBe("fid=f tid=t check=exit0");
   });
@@ -62,7 +71,11 @@ describe("buildTelemetryJoinKeys", () => {
       feedbackId: uuid,
       anonymousId: uuid,
       recentRenders: Array.from({ length: 5 }, () => ({ id: uuid, at: "", ok: true })),
-      lastCheck: { exitCode: 1, codes: { [code + "a"]: 9, [code + "b"]: 8, [code + "c"]: 7 } },
+      lastCheck: {
+        at: "",
+        exitCode: 1,
+        codes: { [code + "a"]: 9, [code + "b"]: 8, [code + "c"]: 7 },
+      },
     });
     expect(keys.length).toBeLessThan(500 - 100);
   });

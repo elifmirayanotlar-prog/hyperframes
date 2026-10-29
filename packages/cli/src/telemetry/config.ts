@@ -581,7 +581,9 @@ export interface HyperframesConfig {
 
 /** The newest `check` in {@link HyperframesConfig.lastCheck}; codes and counts only, no content or paths. */
 export interface LastCheckRecord {
-  exitCode: number;
+  at: string;
+  /** Absent while the check has not finished: it is still running, or was stopped. */
+  exitCode?: number;
   codes: Record<string, number>;
 }
 

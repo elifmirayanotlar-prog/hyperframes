@@ -67,7 +67,9 @@ export function buildTelemetryJoinKeys(input: {
     const codes = Object.entries(input.lastCheck.codes).map(
       ([code, n]) => `${code.slice(0, 24)}*${n}`,
     );
-    parts.push(`check=exit${input.lastCheck.exitCode}${codes.length ? `:${codes.join(",")}` : ""}`);
+    const result =
+      input.lastCheck.exitCode === undefined ? "unfinished" : `exit${input.lastCheck.exitCode}`;
+    parts.push(`check=${result}${codes.length ? `:${codes.join(",")}` : ""}`);
   }
   return parts.join(" ");
 }
