@@ -7,8 +7,11 @@ export interface TelemetryIdentity {
   traits: Record<string, string>;
 }
 
-/** The sha256-derived UUID the HyperFrames web app and Desktop key their users on. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The id the HyperFrames web app and Desktop key their users on: a UUID as is, else its sha256-derived UUID. */
 export function heygenUserId(username: string): string {
+  if (UUID_PATTERN.test(username)) return username;
   const hash = createHash("sha256").update(username).digest();
   hash[6] = (hash[6]! & 0x0f) | 0x50;
   hash[8] = (hash[8]! & 0x3f) | 0x80;

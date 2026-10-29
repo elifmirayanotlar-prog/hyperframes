@@ -2025,8 +2025,10 @@ Nothing personally identifying is collected until you sign in. **Signed-in usage
 is not anonymous.** When you run `hyperframes auth login`, your usage is linked
 to your HeyGen account from then on: it is keyed on an id derived from your
 HeyGen username (the same id the HyperFrames web app and Desktop use), and your
-account email and username are stored with it. Earlier anonymous usage on that
-install is merged into it. `media-use` links the same way when it finds a
+account email and username are stored with it. While you are signed in, every
+event carries that id and your username. Anonymous usage from before the first
+sign-in is merged in, unless an older CLI version had already linked the install
+to your email; that earlier history stays on its own profile. `media-use` links the same way when it finds a
 signed-in HeyGen account. Nothing else personal is added, and the opt-outs below
 still turn all of it off.
 

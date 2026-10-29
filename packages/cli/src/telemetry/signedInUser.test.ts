@@ -34,7 +34,9 @@ describe("signedInHeygenUsername", () => {
   });
 
   it("returns the raw username after sign-in and drops it after sign-out", () => {
-    write({ user: { username: "Alice", email: "alice@example.com" } }, 2000);
+    write({ user: { username: "Alice" } }, 1999);
+    expect(signedInHeygenUsername()).toBeUndefined();
+    write({ api_key: "hg_x", user: { username: "Alice", email: "alice@example.com" } }, 2000);
     expect(signedInHeygenUsername()).toBe("Alice");
     write({ api_key: "hg_x" }, 2001);
     expect(signedInHeygenUsername()).toBeUndefined();

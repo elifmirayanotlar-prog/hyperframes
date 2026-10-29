@@ -11,6 +11,11 @@ describe("heygenUserId", () => {
       "9f3df3a5-89ae-5609-b80b-ce3b7d5f8c37",
     );
   });
+  it("passes a UUID through unhashed, like the web app", () => {
+    const id = "6f1c0d4e-2b3a-4c5d-8e9f-0a1b2c3d4e5f";
+    expect(heygenUserId(id)).toBe(id);
+  });
+
   // media-use/lib/telemetry.test.mjs pins the same "alice" vector for its copy.
 });
 

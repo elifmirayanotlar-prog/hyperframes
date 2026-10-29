@@ -101,11 +101,12 @@ ${c.bold("WHAT WE COLLECT:")}
   ${c.dim("\u2022")} Render performance (duration, fps, quality)
   ${c.dim("\u2022")} Template choices
   ${c.dim("\u2022")} OS, architecture, Node.js version, CLI version
+  ${c.dim("\u2022")} Once you sign in to HeyGen: your account email and username
 
 ${c.bold("WHAT WE DON'T COLLECT:")}
   ${c.dim("\u2022")} File paths, project names, or video content
   ${c.dim("\u2022")} IP addresses (discarded by our analytics provider)
-  ${c.dim("\u2022")} Any personally identifiable information
+  ${c.dim("\u2022")} Anything that identifies you before you sign in
 
 ${c.dim("You can also set")} ${c.accent("HYPERFRAMES_NO_TELEMETRY=1")} ${c.dim("or")} ${c.accent("DO_NOT_TRACK=1")} ${c.dim("to disable.")}
 `);

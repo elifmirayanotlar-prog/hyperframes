@@ -5,7 +5,8 @@ let cached: { path: string; mtimeMs: number; username: string | undefined } | un
 
 function usernameOf(parsed: unknown): string | undefined {
   if (!parsed || typeof parsed !== "object") return undefined;
-  const user = (parsed as { user?: unknown }).user;
+  const { user, api_key, oauth } = parsed as { user?: unknown; api_key?: unknown; oauth?: unknown };
+  if (!api_key && !oauth) return undefined;
   if (!user || typeof user !== "object") return undefined;
   const name = (user as { username?: unknown }).username;
   return typeof name === "string" && name.trim() ? name : undefined;

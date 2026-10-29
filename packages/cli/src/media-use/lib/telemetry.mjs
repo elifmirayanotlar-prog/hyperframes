@@ -121,7 +121,10 @@ function anonymousId() {
 
 // The HyperFrames user id for a HeyGen username: the same sha256-derived UUID
 // the CLI (auth/telemetryIdentity.ts), web app and Desktop key PostHog on.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function heygenUserId(username) {
+  if (UUID_PATTERN.test(username)) return username;
   const hash = createHash("sha256").update(username).digest();
   hash[6] = (hash[6] & 0x0f) | 0x50;
   hash[8] = (hash[8] & 0x3f) | 0x80;
@@ -147,6 +150,7 @@ function heygenAccount() {
     if (!raw.startsWith("{")) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    if (!parsed.api_key && !parsed.oauth) return null;
     const user = parsed.user;
     if (!user || typeof user !== "object" || Array.isArray(user)) return null;
     const email =
@@ -229,11 +233,8 @@ export async function track(event, properties = {}) {
   const account = heygenAccount();
   await identifyAccount(anonId, account);
   const username = account?.traits.heygen_username;
-  await postEvent(
-    event,
-    username ? { ...properties, heygen_username: username } : properties,
-    anonId,
-  );
+  if (!username) return postEvent(event, properties, anonId);
+  await postEvent(event, { ...properties, heygen_username: username }, heygenUserId(username));
 }
 
 export function __anonymousIdForTest() {

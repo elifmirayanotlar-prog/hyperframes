@@ -35,9 +35,10 @@ npx hyperframes media-use resolve --stats --project . --days 7
 
 ## Telemetry
 
-`resolve` and the edit tools (transcribe / transcript-cut / audio-duck) send an
-anonymous usage event to PostHog (`scripts/lib/telemetry.mjs`), so we can see
-which capabilities are actually used. It records only the media TYPE, the
+`resolve` and the edit tools (transcribe / transcript-cut / audio-duck) send a
+usage event to PostHog (`scripts/lib/telemetry.mjs`), so we can see which
+capabilities are actually used. It is anonymous until you sign in to HeyGen
+(see Privacy below). It records only the media TYPE, the
 resolution SOURCE, and the winning PROVIDER: never the intent text, file names,
 or paths, and `$ip:null` so no IP is stored. Best-effort and non-blocking (a
 resolve never waits on or fails from telemetry).

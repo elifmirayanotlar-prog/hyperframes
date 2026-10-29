@@ -184,7 +184,10 @@ test("track identifies a signed-in HeyGen account once and still sends events", 
     mkdirSync(join(home, ".heygen"), { recursive: true });
     writeFileSync(
       join(home, ".heygen/credentials"),
-      JSON.stringify({ user: { email: "alice@example.com", username: "alice" } }),
+      JSON.stringify({
+        api_key: "hg_test",
+        user: { email: "alice@example.com", username: "alice" },
+      }),
     );
 
     await track("media_use_resolve", { type: "bgm", source: "search" });
@@ -203,6 +206,9 @@ test("track identifies a signed-in HeyGen account once and still sends events", 
     const resolves = batch.filter((item) => item.event === "media_use_resolve");
     assert.equal(resolves.length, 2);
     assert.ok(resolves.every((item) => item.properties.heygen_username === "alice"));
+    assert.ok(
+      resolves.every((item) => item.distinct_id === "2bd806c9-7f0e-50af-9a1f-c3328fa763a9"),
+    );
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv(savedEnv);
@@ -230,7 +236,7 @@ test("track falls back to a lowercased email when the account has no username", 
     mkdirSync(join(home, ".heygen"), { recursive: true });
     writeFileSync(
       join(home, ".heygen/credentials"),
-      JSON.stringify({ user: { email: "Alice@Example.com" } }),
+      JSON.stringify({ api_key: "hg_test", user: { email: "Alice@Example.com" } }),
     );
 
     await track("media_use_resolve", { type: "bgm", source: "search" });
