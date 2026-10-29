@@ -34,11 +34,8 @@ export function redactUrlQueryStrings(value: string): string {
  */
 const SEGMENT = String.raw`[^\s/\\'"]+`;
 
-/**
- * A folder that another separator follows may hold spaces (`My Drive`, `내 드라이브`, `OneDrive - Contoso`): the separator
- * after it proves the words belong to the path. Only the last segment stops at a space, so prose after a path survives.
- * Line breaks still end it.
- */
+/** A folder that another separator follows may hold spaces (`My Drive`, `내 드라이브`, `OneDrive - Contoso`); only
+ * the last segment stops at a space, so prose after a path survives. Line breaks still end it. */
 const FOLDER = String.raw`${SEGMENT}(?:[^\S\r\n]+(?![A-Za-z]:[\\/])${SEGMENT})*(?=[\\/])`;
 
 /** Same, minus the dot, so a trailing `.ext` can be matched separately. */
