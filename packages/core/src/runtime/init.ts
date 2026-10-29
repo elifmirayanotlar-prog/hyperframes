@@ -4580,7 +4580,7 @@ export function initSandboxRuntimeModular(): void {
     const wantedNow = (name: string) =>
       heldScenes.has(name) ||
       scenesWanted(windowScenes, state.currentTime, clock.isPlaying()).has(name);
-    const parkedBefore = parkedNames.size;
+    const parkedBeforeStep = parkedNames.size;
     windowWork = (async () => {
       if (landed) await mountScene(landed.name);
       else if (toMount) {
@@ -4590,9 +4590,8 @@ export function initSandboxRuntimeModular(): void {
       } else for (const { name } of toRetire) retireScene(name);
     })().finally(() => {
       windowWork = null;
-      // A pass that mounted and retired nothing (a scene that cannot retire or unpark) would plan itself again in the
-      // same task, forever, starving the page; it keeps its plan until the playhead or the held scenes change it.
-      windowNear = parkedNames.size === parkedBefore ? key : "";
+      const stuckStepKeepsItsPlan = parkedNames.size === parkedBeforeStep;
+      windowNear = stuckStepKeepsItsPlan ? key : "";
       moveSceneWindow(state.currentTime);
     });
     // A seek is not done until the scene it lands in is mounted.
