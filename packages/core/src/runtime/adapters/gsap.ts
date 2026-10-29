@@ -86,16 +86,34 @@ function gsapNeverRendered(timeline: RuntimeTimelineLike): boolean {
   return rendered !== undefined && !rendered._initted;
 }
 
+const lastRenderSeek = new WeakMap<object, number>();
+
+function renderFramesSkippedSinceLastSeek(
+  timeline: RuntimeTimelineLike,
+  t: number,
+  suppressEvents: boolean,
+  fps: number,
+): void {
+  const last = lastRenderSeek.get(timeline);
+  lastRenderSeek.set(timeline, t);
+  const frames = last === undefined ? Math.floor(t * fps + 1e-6) + 1 : (t - last) * fps;
+  const skipped = Math.round(frames) - 1;
+  if (skipped < 1 || Math.abs(frames - Math.round(frames)) > 1e-6) return;
+  for (let back = skipped; back >= 1; back--) timeline.totalTime(t - back / fps, suppressEvents);
+}
+
 export function seekGsapTimeline(
   timeline: RuntimeTimelineLike,
   t: number,
   suppressEvents: boolean,
   structure?: GsapStructureKey,
+  renderFps?: number,
 ): boolean {
   if (typeof timeline.totalTime !== "function") {
     if (typeof timeline.seek === "function") timeline.seek(t, suppressEvents);
     return false;
   }
+  if (renderFps) renderFramesSkippedSinceLastSeek(timeline, t, suppressEvents, renderFps);
   const from = Number(timeline.totalTime());
   timeline.totalTime(t, suppressEvents);
   if (t < from && structure) reapplyStepsInAuthoredOrder(timeline, structure, t);
