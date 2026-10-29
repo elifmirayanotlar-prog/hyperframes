@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync } from "node:fs";
 import { credentialPath } from "../auth/paths.js";
 
 let cached: { path: string; mtimeMs: number; username: string | undefined } | undefined;
@@ -14,14 +14,18 @@ function usernameOf(parsed: unknown): string | undefined {
 /** The signed-in HeyGen username, put on every event so each row joins across projects by itself. */
 export function signedInHeygenUsername(): string | undefined {
   const path = credentialPath();
+  let fd: number | undefined;
   try {
-    const { mtimeMs } = statSync(path);
+    fd = openSync(path, "r");
+    const { mtimeMs } = fstatSync(fd);
     if (cached?.path === path && cached.mtimeMs === mtimeMs) return cached.username;
-    const username = usernameOf(JSON.parse(readFileSync(path, "utf8")));
+    const username = usernameOf(JSON.parse(readFileSync(fd, "utf8")));
     cached = { path, mtimeMs, username };
     return username;
   } catch {
     cached = undefined;
     return undefined;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
