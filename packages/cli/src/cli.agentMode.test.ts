@@ -288,6 +288,10 @@ describe("agent-mode contract", () => {
     ["help cloud rendr", "Did you mean 'hyperframes cloud render'?"],
     ["search crossfade", "Did you mean 'hyperframes catalog'?"],
     ["install crossfade", "Did you mean 'hyperframes add'?"],
+    ["find crossfade", "Did you mean 'hyperframes catalog'?"],
+    ["list", "Did you mean 'hyperframes catalog'?"],
+    ["browse", "Did you mean 'hyperframes catalog'?"],
+    ["registry", "Did you mean 'hyperframes catalog'?"],
   ])(
     "unknown command `%s` suggests the closest one, usage on stderr, exit 2",
     async (args, hint) => {

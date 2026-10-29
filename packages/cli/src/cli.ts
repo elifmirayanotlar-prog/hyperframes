@@ -544,8 +544,8 @@ async function unknownCommandError(requested: ResolvedCommandUsage): Promise<Cli
   const subCommands = typeof declared === "function" ? await declared() : await declared;
   const names = Object.keys(subCommands ?? {});
   const match =
-    closestMatch(word, names) ??
-    (requested.path.length === 0 ? synonymMatch(word, names) : undefined);
+    (requested.path.length === 0 ? synonymMatch(word, names) : undefined) ??
+    closestMatch(word, names);
   console.error(`Unknown command: ${word}`);
   if (match) console.error(`Did you mean '${group} ${match}'?`);
   console.error("");
