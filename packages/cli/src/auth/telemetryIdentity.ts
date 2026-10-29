@@ -1,21 +1,13 @@
 import { createHash } from "node:crypto";
 import type { UserInfo } from "./client.js";
 
-/**
- * Who a signed-in install is in telemetry. `distinctId` is the PostHog person
- * key; `traits` are person properties ($set) shared across HeyGen's PostHog
- * projects so the Snowflake event table can join one person across them.
- */
 export interface TelemetryIdentity {
   distinctId: string;
+  /** PostHog person properties. `heygen_username` joins one person across HeyGen's projects. */
   traits: Record<string, string>;
 }
 
-/**
- * The HyperFrames user id for a HeyGen username: the same sha256-derived UUID
- * (version nibble 5, RFC 4122 variant) the HyperFrames web app and Desktop key
- * their users and PostHog persons on, so CLI usage lands on the same person.
- */
+/** The sha256-derived UUID the HyperFrames web app and Desktop key their users on. */
 export function heygenUserId(username: string): string {
   const hash = createHash("sha256").update(username).digest();
   hash[6] = (hash[6]! & 0x0f) | 0x50;
@@ -30,12 +22,7 @@ export function heygenUserId(username: string): string {
   ].join("-");
 }
 
-/**
- * Keyed on the username's HyperFrames user id. An account with no username
- * falls back to its lowercased email, the key earlier CLI versions used.
- * `heygen_username` is the cross-project join column (HeyGen's own project
- * stores the same value as `name`).
- */
+/** Keyed on the username's user id; an account without one falls back to its lowercased email. */
 export function telemetryIdentity(user: UserInfo): TelemetryIdentity | undefined {
   const email = user.email?.trim().toLowerCase() || undefined;
   const username = user.username?.trim() ? user.username : undefined;

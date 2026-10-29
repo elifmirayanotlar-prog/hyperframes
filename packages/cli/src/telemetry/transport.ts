@@ -36,7 +36,6 @@ export type EventPropertyValue =
   | undefined
   | readonly string[]
   | Readonly<Record<string, number>>
-  // PostHog person properties ($set) on $identify.
   | Readonly<Record<string, string>>;
 
 export interface EventProperties {
