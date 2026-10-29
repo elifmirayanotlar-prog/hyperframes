@@ -639,6 +639,14 @@ function nonNegativeNumber(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
+/** Why the browser pass did not run, when lint errors stopped it: the author fixes those, not the browser. */
+function browserSkippedLine(report: CheckReport): string {
+  const lintError = report.lint.findings.some((finding) => finding.severity === "error");
+  return lintError
+    ? "Browser validation skipped because of the lint error above: fix it and run check again. Layout, motion, and contrast were not checked, so this is not a clean pass."
+    : "Browser session never ran — layout, motion, and contrast below are empty placeholders, not a clean pass.";
+}
+
 function printHumanReport(report: CheckReport): void {
   if (report.scope) {
     console.log(
@@ -649,9 +657,7 @@ function printHumanReport(report: CheckReport): void {
   printSection("Lint", report.lint);
   if (report.browserSkipped) {
     console.log();
-    console.log(
-      `  ${c.warn("⚠")} Browser session never ran — layout, motion, and contrast below are empty placeholders, not a clean pass.`,
-    );
+    console.log(`  ${c.warn("⚠")} ${browserSkippedLine(report)}`);
   }
   printSection("Runtime", report.runtime);
   printLayoutSection("Layout", report.layout);
