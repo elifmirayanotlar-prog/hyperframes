@@ -1,11 +1,12 @@
 import { captureArtifactRevision } from "../utils/artifactCapture.js";
 import { recordRenderSuccess, registerRenderOutput } from "@hyperframes/studio-server/history";
 import { failCommand, requestCliExit, scheduleCliExit } from "../utils/commandResult.js";
-import { defineCommand } from "citty";
+import { defineCommand } from "../utils/defineCommand.js";
 import type { Example } from "./_examples.js";
 import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync, rmSync } from "node:fs";
 import { createRenderPlan, resolveBrowserGpuForCli, type RenderFormat } from "./render/plan.js";
 import { seedProjectAuthoringSkill } from "../utils/projectConfig.js";
+import { deliveryFlagArgs } from "../utils/deliveryFlags.js";
 import type { CatalogUsage } from "../utils/catalogUsage.js";
 import { presentRenderPlan } from "./render/present.js";
 import { executeRenderPlan, renderLintContinuationHint, runRenderLint } from "./render/execute.js";
@@ -75,6 +76,7 @@ import {
 } from "../ui/format.js";
 import { warnIfWebmAlphaDropped } from "../utils/webmAlphaCheck.js";
 import { renderFailureDiagnostic } from "../ui/renderDiagnostic.js";
+import { missingPathKind } from "../telemetry/missingPathKind.js";
 import { renderProgress, renderMachineProgress } from "../ui/progress.js";
 import {
   trackRenderComplete,
@@ -127,7 +129,6 @@ import {
 import { chromeLaunchRemediation } from "../browser/linuxDeps.js";
 import { macosOldChromeCrashRemediation } from "../browser/macosOldChromeCrash.js";
 import { windowsChromeCrashRemediation } from "../browser/windowsCrash.js";
-import { sandboxDeniedRemediation } from "../browser/sandboxDenied.js";
 import { killOrphanedProcessesForRender } from "../utils/orphanCleanup.js";
 import { createRenderCancellationScope } from "../utils/renderCancellation.js";
 import {
@@ -136,7 +137,12 @@ import {
   runPostRenderStepAsync,
 } from "../utils/render-success-state.js";
 import type { ProducerLogger, RenderJob, RenderPerfSummary } from "@hyperframes/producer";
-import { EXTRACT_CACHE_DIR_DISABLED_ALIASES, type VideoFrameFormat } from "@hyperframes/engine";
+import {
+  EXTRACT_CACHE_DIR_DISABLED_ALIASES,
+  sandboxDeniedRemediation,
+  type ProresProfile,
+  type VideoFrameFormat,
+} from "@hyperframes/engine";
 import {
   checkOutputResolutionCompatibility,
   suggestMatchingPreset,
@@ -187,14 +193,14 @@ export default defineCommand({
       type: "string",
       alias: "q",
       description:
-        "Quality: draft, looks, delivery, or standard/high. looks is the default (CRF 16). delivery is high. MOV always uses the fixed alpha-preserving ProRes 4444 profile.",
+        "Quality: draft, looks, delivery, or standard/high. looks is the default (CRF 16). delivery is high. MOV uses ProRes 4444 with alpha unless --prores-profile picks a 422 profile.",
       default: "looks",
     },
     skill: {
       type: "string",
       description:
         "Authoring skill that initiated this render (e.g. hyperframes). " +
-        "Recorded on anonymous render telemetry for per-skill usage breakdowns; ignored unless it is a slug.",
+        "Recorded on render telemetry for per-skill usage breakdowns; ignored unless it is a slug.",
     },
     format: {
       type: "string",
@@ -261,6 +267,7 @@ export default defineCommand({
       description:
         "Target MP4/WebM video bitrate such as 10M. Mutually exclusive with --crf; unsupported for MOV.",
     },
+    ...deliveryFlagArgs,
     "vp9-cpu-used": {
       type: "string",
       description:
@@ -311,7 +318,7 @@ export default defineCommand({
     variables: {
       type: "string",
       description:
-        'JSON object of variable values, merged over the composition\'s data-composition-variables defaults. Example: --variables \'{"title":"Hello"}\'. Read inside the composition via window.__hyperframes.getVariables().',
+        'JSON object of variable values, merged over the composition\'s data-composition-variables defaults. Example: --variables \'{"title":"Hello"}\'. Also a JSON file path, or - for stdin. Read inside the composition via window.__hyperframes.getVariables().',
     },
     "variables-file": {
       type: "string",
@@ -341,7 +348,8 @@ export default defineCommand({
     },
     json: {
       type: "boolean",
-      description: "With --batch, emit exactly one final JSON result document.",
+      description:
+        "With --batch, emit exactly one final JSON result document. Without --batch, print no progress, and on failure print the JSON error envelope.",
       default: false,
     },
     resolution: {
@@ -525,6 +533,10 @@ export interface RenderOptions {
   crf?: number;
   vp9CpuUsed?: number;
   videoBitrate?: string;
+  keyframeIntervalSeconds?: number;
+  proresProfile?: ProresProfile;
+  maxBitrate?: string;
+  bufferSize?: string;
   videoFrameFormat?: VideoFrameFormat;
   pageMotionBlur?: "off";
   quiet: boolean;
@@ -664,6 +676,7 @@ export async function checkRenderResolutionPreflight(
 }
 
 const DOCKER_IMAGE_PREFIX = "hyperframes-renderer";
+const BEGIN_FRAME_FIRST_FRAME_DEADLINE_MS = 20_000;
 
 function dockerImageTag(version: string): string {
   return `${DOCKER_IMAGE_PREFIX}:${version}`;
@@ -860,6 +873,10 @@ async function renderDocker(
       crf: options.crf,
       vp9CpuUsed: options.vp9CpuUsed,
       videoBitrate: options.videoBitrate,
+      keyframeIntervalSeconds: options.keyframeIntervalSeconds,
+      proresProfile: options.proresProfile,
+      maxBitrate: options.maxBitrate,
+      bufferSize: options.bufferSize,
       videoFrameFormat: options.videoFrameFormat,
       pageMotionBlur: options.pageMotionBlur,
       quiet: options.quiet,
@@ -1111,12 +1128,15 @@ async function executeLocalRender(
 
   const engineConfig = producer.resolveConfig({
     browserGpuMode: options.browserGpuMode ?? "software",
-    // Local auto opts out of the software-GPU screenshot clamp. Docker and
-    // --no-browser-gpu request software; --resolution supersamples via screenshot.
+    // Local auto opts out of the software-GPU screenshot clamp, and a BeginFrame that draws no first frame
+    // retries by screenshot. Docker and --no-browser-gpu request software; --resolution supersamples via screenshot.
     ...(options.browserGpuMode === "auto" &&
     options.outputResolution == null &&
     process.env.PRODUCER_FORCE_SCREENSHOT !== "true"
-      ? { forceScreenshot: false }
+      ? {
+          forceScreenshot: false,
+          beginFrameFirstFrameDeadlineMs: BEGIN_FRAME_FIRST_FRAME_DEADLINE_MS,
+        }
       : {}),
     ...(options.pageNavigationTimeoutMs != null
       ? { pageNavigationTimeout: options.pageNavigationTimeoutMs }
@@ -1140,6 +1160,10 @@ async function executeLocalRender(
       hdrMode: options.hdrMode,
       crf: options.crf,
       videoBitrate: options.videoBitrate,
+      keyframeIntervalSeconds: options.keyframeIntervalSeconds,
+      proresProfile: options.proresProfile,
+      maxBitrate: options.maxBitrate,
+      bufferSize: options.bufferSize,
       videoFrameFormat: options.videoFrameFormat,
       pageMotionBlur: options.pageMotionBlur,
       variables: options.variables,
@@ -1753,6 +1777,26 @@ export function normalizeStageCode(stage: string): string {
   return slug || "unknown";
 }
 
+/**
+ * A Chrome launch failure is an environment problem, not a composition bug: the exact remediation for a Linux/WSL
+ * sandbox or shared-library failure, a macOS <13 dyld crash, or a Windows STATUS_STACK_BUFFER_OVERRUN, in that order.
+ */
+export function chromeLaunchFailure(
+  message: string,
+): { title: string; remediation: string } | null {
+  const detectors = [
+    sandboxDeniedRemediation,
+    chromeLaunchRemediation,
+    macosOldChromeCrashRemediation,
+  ];
+  const remediation = detectors.map((detect) => detect(message)).find(Boolean);
+  if (remediation) return { title: "Render failed — Chrome could not launch", remediation };
+  const windows = windowsChromeCrashRemediation(message);
+  return windows
+    ? { title: "Render failed — chrome-headless-shell crashed at launch", remediation: windows }
+    : null;
+}
+
 function handleRenderError(
   error: unknown,
   options: RenderOptions,
@@ -1788,6 +1832,7 @@ function handleRenderError(
     // the render_complete success path, since nothing failed to name.
     errorName: error instanceof Error ? error.name : "unknown",
     failedStageCode: normalizeStageCode(failedStage || "pipeline"),
+    missingPathKind: missingPathKind(error),
     ...renderJobObservabilityTelemetryPayload(job),
     ...getMemorySnapshot(),
     ...cpu.stop(),
@@ -1798,40 +1843,9 @@ function handleRenderError(
   if (options.throwOnError) {
     throw new Error(message);
   }
-  // A `Failed to launch the browser process` / `libnss3.so cannot open ...`
-  // failure on Linux/WSL is an environment problem, not a composition bug.
-  // Replace the generic "Try --docker" hint with the exact per-distro
-  // remediation and a pointer at `doctor`.
-  const sandboxRemediation = sandboxDeniedRemediation(message);
-  if (sandboxRemediation) {
-    errorBox("Render failed — Chrome could not launch", message, sandboxRemediation);
-    failCommand();
-  }
-  const remediation = chromeLaunchRemediation(message);
-  if (remediation) {
-    errorBox("Render failed — Chrome could not launch", message, remediation);
-    failCommand();
-  }
-  // macOS <13 dyld Symbol-not-found on the pinned chrome-headless-shell
-  // build. Different remediation shape (older shell + env-var override)
-  // than the Linux shared-lib install, so it lives in its own detector.
-  const macosRemediation = macosOldChromeCrashRemediation(message);
-  if (macosRemediation) {
-    errorBox("Render failed — Chrome could not launch", message, macosRemediation);
-    failCommand();
-  }
-  // Windows chrome-headless-shell can crash at launch with
-  // STATUS_STACK_BUFFER_OVERRUN (exit 0xC0000409 / 3221225595). Same
-  // HYPERFRAMES_BROWSER_PATH remediation as the download-time hint (#2443)
-  // and the closed-with-invite arm64 macOS sibling (#2078). Field feedback
-  // ts=1784116246.
-  const windowsRemediation = windowsChromeCrashRemediation(message);
-  if (windowsRemediation) {
-    errorBox(
-      "Render failed — chrome-headless-shell crashed at launch",
-      message,
-      windowsRemediation,
-    );
+  const launch = chromeLaunchFailure(message);
+  if (launch) {
+    errorBox(launch.title, message, launch.remediation);
     failCommand();
   }
   errorBox("Render failed", message, hint);
@@ -1942,6 +1956,7 @@ function trackRenderMetrics(
     deBlankDeterministicAccepts: perf?.drawElement?.blankDeterministicAccepts,
     deBlankRecaptures: perf?.drawElement?.blankRecaptures,
     deBoundaryFrames: perf?.drawElement?.boundaryFrames,
+    deRiskFrames: perf?.drawElement?.riskFrames,
     deNcprFallbacks: perf?.drawElement?.ncprFallbacks,
     deFrameTimeouts: perf?.drawElement?.frameTimeouts,
     compositionDurationMs,

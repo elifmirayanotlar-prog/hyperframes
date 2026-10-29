@@ -47,6 +47,8 @@ import {
   type EngineConfig,
   type VideoFrameFormat,
   getEncoderPreset,
+  type ProresProfile,
+  keyframeIntervalToGopSize,
   normalizeVp9CpuUsed,
   resolveConfig,
   type AudioProcessingFailure,
@@ -62,7 +64,11 @@ import {
 } from "../renderOrchestrator.js";
 import { closeFileServerSafely } from "../fileServer.js";
 import { measurePlanSecondsPerFrame } from "./planFrameCost.js";
-import { buildWeightedChunkSlices, planFrameWeights } from "./chunkWeights.js";
+import {
+  buildWeightedChunkSlices,
+  planFrameWeights,
+  withChunkCaptureCost,
+} from "./chunkWeights.js";
 import { runAudioStage } from "../render/stages/audioStage.js";
 import { runCompileStage } from "../render/stages/compileStage.js";
 import {
@@ -151,6 +157,14 @@ export interface DistributedRenderConfig extends Pick<RenderRequestOptions, "pag
   crf?: number;
   /** Target video bitrate (e.g. `"10M"`); mutually exclusive with `crf`. */
   bitrate?: string;
+  /** Longest gap between keyframes, in seconds (mp4). Chunk joins add keyframes, so this is a maximum. */
+  keyframeIntervalSeconds?: number;
+  /** ProRes profile for `format: "mov"`; the 422 profiles have no alpha. Defaults to `4444`. */
+  proresProfile?: ProresProfile;
+  /** Peak bitrate cap (mp4), per chunk. */
+  maxBitrate?: string;
+  /** Rate-cap buffer; defaults to twice `maxBitrate`. */
+  bufferSize?: string;
   /**
    * Source-video frame extraction format. Defaults to `"auto"`, matching the
    * in-process renderer: alpha/alpha-capable sources extract as PNG, other
@@ -865,7 +879,10 @@ export function buildPlanChunkSlices(
           Math.min(config.targetChunkFrames ?? MAX_CHUNK_SIZE, MAX_CHUNK_SIZE, maxFramesPerChunk),
         )
       : null;
-  return weighted ?? buildChunkSlices(frameWeights.length, chunkCount, effectiveChunkSize);
+  return withChunkCaptureCost(
+    weighted ?? buildChunkSlices(frameWeights.length, chunkCount, effectiveChunkSize),
+    frameWeights,
+  );
 }
 
 /**
@@ -943,6 +960,12 @@ function buildLockedRenderConfig(input: {
     preset,
     crf: config.crf,
     bitrate: config.bitrate,
+    maxBitrate: config.maxBitrate,
+    bufferSize: config.bufferSize,
+    keyframeIntervalFrames:
+      config.keyframeIntervalSeconds === undefined
+        ? undefined
+        : keyframeIntervalToGopSize({ num: config.fps, den: 1 }, config.keyframeIntervalSeconds),
     ...locksVp9CpuUsed,
     // GOP === chunkSize so every chunk's first frame is an IDR keyframe and
     // ffmpeg concat-copy round-trips losslessly.
@@ -950,6 +973,10 @@ function buildLockedRenderConfig(input: {
     closedGop: true,
     forceKeyframes: "n=0",
     pixelFormat,
+    // Omitted for the default so existing 4444 plans keep their planHash.
+    ...(config.proresProfile && config.proresProfile !== "4444"
+      ? { proresProfile: config.proresProfile }
+      : {}),
     chunkSize: input.effectiveChunkSize,
     chunkCount: input.chunkCount,
     runtimeEnv: input.runtimeEnv,
@@ -997,7 +1024,11 @@ function resolveEncoderTriple(config: DistributedRenderConfig): EncoderTriple {
         `libvpx-vp9, and png-sequence has no encoder.`,
     );
   }
-  return resolveNonMp4EncoderTriple(config.format, config.quality ?? "standard");
+  return resolveNonMp4EncoderTriple(
+    config.format,
+    config.quality ?? "standard",
+    config.proresProfile,
+  );
 }
 
 function resolveMp4EncoderTriple(codec: DistributedRenderConfig["codec"]): EncoderTriple {
@@ -1022,9 +1053,11 @@ function resolveMp4EncoderTriple(codec: DistributedRenderConfig["codec"]): Encod
 function resolveNonMp4EncoderTriple(
   format: Exclude<DistributedFormat, "mp4">,
   quality: "draft" | "standard" | "high",
+  proresProfile?: ProresProfile,
 ): EncoderTriple {
   if (format === "mov") {
-    return { encoder: "prores-software", pixelFormat: "yuva444p10le", preset: "4444" };
+    const { pixelFormat, preset } = getEncoderPreset(quality, "mov", undefined, proresProfile);
+    return { encoder: "prores-software", pixelFormat, preset };
   }
   if (format === "webm") {
     // Defer to `getEncoderPreset` for the libvpx-vp9 preset string so the
