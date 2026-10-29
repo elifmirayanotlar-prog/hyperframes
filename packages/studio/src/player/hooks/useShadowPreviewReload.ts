@@ -45,18 +45,14 @@ function shadowPlayerReachable(iframe: HTMLIFrameElement | null): boolean {
 }
 
 function shadowPagePhase(iframe: HTMLIFrameElement | null): string {
-  try {
-    const win = iframe?.contentWindow as Record<string, unknown> | null | undefined;
-    const doc = iframe?.contentDocument;
-    if (!win || !doc || doc.URL === "about:blank") return "no-page";
-    if (doc.readyState === "loading") return "page-loading";
-    if (win.__hfStartupError) return "startup-error";
-    if (!win.__hyperframes) return "runtime-not-run";
-    if (!win.__hyperframeRuntimeBootstrapped) return "scripts-waiting";
-    return "no-player";
-  } catch {
-    return "unreadable";
-  }
+  const win = iframe?.contentWindow as Record<string, unknown> | null | undefined;
+  const doc = iframe?.contentDocument;
+  if (!win || !doc || doc.URL === "about:blank") return "no-page";
+  if (doc.readyState === "loading") return "page-loading";
+  if (win.__hfStartupError) return "startup-error";
+  if (!win.__hyperframes) return "runtime-not-run";
+  if (!win.__hyperframeRuntimeBootstrapped) return "scripts-waiting";
+  return "no-player";
 }
 
 function isDocumentHidden(): boolean {
@@ -133,13 +129,15 @@ export function useShadowPreviewReload({
   const failShadow = useCallback(
     (gen: number, cause: string) => {
       if (gen !== shadowGenRef.current) return;
-      const reachable = shadowPlayerReachable(shadowIframeRef.current);
-      const phase = reachable ? null : shadowPagePhase(shadowIframeRef.current);
-      const waitingFor = !reachable
+      const waitingFor = !shadowPlayerReachable(shadowIframeRef.current)
         ? "the page and its runtime to load"
         : pendingCommitRef.current?.gen !== gen
           ? "its timeline to be ready"
           : "its loaders to clear";
+      const iframe = shadowIframeRef.current;
+      const got = shadowPlayerReachable(iframe)
+        ? ""
+        : ` Its page had got to: ${shadowPagePhase(iframe)}.`;
       shadowGenRef.current += 1;
       stopPendingShadow();
       shadowIframeRef.current = null;
@@ -147,9 +145,8 @@ export function useShadowPreviewReload({
       pendingSeekRef.current = null;
       setPreviewSlots(planShadowDiscard);
       setPreviewReloading(false);
-      const got = phase ? ` Its page had got to: ${phase}.` : "";
       const message = `The preview did not reload (${cause}). It was still waiting for ${waitingFor}.${got} The previous preview is still showing.`;
-      logReload("shadow-failed", { cause, waitingFor, phase });
+      logReload("shadow-failed", { cause, waitingFor });
       const refused = refusedPreviewStatus(cause);
       const pageMissingNow = refused !== null && refused < 500;
       (pageMissingNow ? console.warn : console.error)(`[studio] ${message}`);
